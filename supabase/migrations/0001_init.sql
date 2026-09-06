@@ -313,6 +313,24 @@ create policy active_sessions_all on public.active_sessions
   for all using (public.is_family_member(family_id))
   with check (public.is_family_member(family_id));
 
+-- ------------------------------------------------------------------ grants --
+-- RLS filters rows; GRANT opens the table. They are AND, not OR: a project
+-- with "automatically expose new tables" disabled has neither, and every read
+-- fails with 42501 the moment a user signs in. Least privilege throughout --
+-- only what a policy above actually permits.
+--
+--  * `anon` gets nothing: nothing is read before sign-in, so a leaked anon
+--    key grants no table access at all, RLS aside.
+--  * `care_events` gets no delete: deletes are soft, so the tombstone can
+--    replicate to a peer that was offline when the delete happened.
+
+grant select, update                 on public.profiles        to authenticated;
+grant select                         on public.families        to authenticated;
+grant select, delete                 on public.family_members  to authenticated;
+grant select, insert, update, delete on public.babies          to authenticated;
+grant select, insert, update         on public.care_events     to authenticated;
+grant select, insert, update, delete on public.active_sessions to authenticated;
+
 -- --------------------------------------------------------------- realtime --
 
 alter publication supabase_realtime add table public.care_events;
