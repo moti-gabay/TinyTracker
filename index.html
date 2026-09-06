@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <title>TinyTracker</title>
+    <meta name="description" content="One-tap newborn feeding and care tracking." />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="TinyTracker" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#faf7f4" />
+
+    <script>
+      // Resolve the theme BEFORE first paint. A white flash at 3 AM is the
+      // single worst bug this app could ship, so this is inline and blocking.
+      // Order: manual override -> OS preference -> day.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('tt.theme') // 'day' | 'night' | null
+          var theme =
+            stored === 'day' || stored === 'night'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'night'
+                : 'day'
+          document.documentElement.setAttribute('data-theme', theme)
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', theme === 'night' ? '#000000' : '#faf7f4')
+        } catch (e) {
+          /* private mode: fall through to the day default on <html> */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

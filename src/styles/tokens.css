@@ -1,0 +1,62 @@
+/* ------------------------------------------------------------------
+   TinyTracker design tokens.
+
+   Two themes only: DAY and NIGHT. The dark theme *is* the night theme.
+   Night is tuned for a dark room at minimum screen brightness:
+   warm hues only, no pure white, no saturated blue, capped luminance.
+   ------------------------------------------------------------------ */
+
+:root,
+[data-theme='day'] {
+  color-scheme: light;
+
+  --bg: #faf7f4;
+  --surface: #ffffff;
+  --surface-2: #f0ebe5;
+  --border: #ddd4ca;
+
+  --text: #2a2320;
+  --text-muted: #6f635a;
+
+  --accent: #b5651d;
+  --accent-contrast: #ffffff;
+
+  --left: #c2703a;
+  --left-fg: #ffffff;
+  --right: #a8556b;
+  --right-fg: #ffffff;
+
+  --danger: #b03a2e;
+  --success: #3f7d51;
+
+  --shadow: 0 1px 3px rgb(42 35 32 / 0.12);
+}
+
+[data-theme='night'] {
+  color-scheme: dark;
+
+  /* True black: OLED pixels are off, lowest possible emitted light. */
+  --bg: #000000;
+  --surface: #0e0c0a;
+  --surface-2: #17130f;
+  --border: #2a231d;
+
+  /* Warm grey, ~6.5:1 on black. Deliberately NOT white. */
+  --text: #9c9186;
+  /* ~3:1 -- secondary/decorative only, never body copy. */
+  --text-muted: #5e564f;
+
+  --accent: #b5651d;
+  --accent-contrast: #17130f;
+
+  /* Sides differ by hue AND label; colour is never the only signal. */
+  --left: #8a4f1c;
+  --left-fg: #d8cabb;
+  --right: #7a3b4a;
+  --right-fg: #d8cabb;
+
+  --danger: #8a3a2f;
+  --success: #3d6b49;
+
+  --shadow: none;
+}
