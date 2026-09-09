@@ -146,7 +146,7 @@ export function SettingsScreen() {
         ) : (
           <>
             <p className="mb-3 text-xs text-text-muted">
-              {online ? 'Online' : 'Offline'} ·{' '}
+              {session.user.email} · {online ? 'Online' : 'Offline'} ·{' '}
               {pending === 0 ? 'All logs synced' : `${pending ?? 0} waiting to sync`}
             </p>
             {failed !== undefined && failed > 0 && (

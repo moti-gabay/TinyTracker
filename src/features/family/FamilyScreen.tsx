@@ -16,6 +16,7 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [existing, setExisting] = useState<{ code: string } | null>(null)
+  const [checked, setChecked] = useState(false)
   const setFamily = useSession((s) => s.setFamily)
   const localFamilyId = useSession((s) => s.familyId)
   const showToast = useToast((s) => s.show)
@@ -25,11 +26,17 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     if (!supabase) return
     void (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('families')
         .select('id, invite_code, babies(id)')
         .limit(1)
         .maybeSingle()
+      // A 42501 here means the `authenticated` grants were never applied.
+      // Swallowing it looks exactly like "no family yet", and then every tap
+      // of "Start a new family" mints another one -- create_family is
+      // SECURITY DEFINER, so it succeeds even when this select cannot.
+      if (error) return setError(`Could not check your family: ${error.message}`)
+      setChecked(true)
       if (data) {
         setExisting({ code: data.invite_code as string })
         const babyId = (data.babies as { id: string }[] | null)?.[0]?.id
@@ -80,12 +87,17 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   }
 
   const join = async () => {
-    if (!supabase || code.trim().length < 4) return
+    if (!supabase || code.trim().length !== 8) return
     setBusy(true)
     setError(null)
     const { data, error } = await supabase.rpc('join_family', { code: code.trim() })
     setBusy(false)
-    if (error) return setError('That code did not match a family.')
+    // P0002 is the `no_data_found` join_family raises for an unknown code.
+    // Anything else is a real fault and must not masquerade as a typo.
+    if (error)
+      return setError(
+        error.code === 'P0002' ? 'That code did not match a family.' : error.message,
+      )
     const row = Array.isArray(data) ? data[0] : data
     if (!row?.family_id) return setError('That code did not match a family.')
     await adopt(row.family_id, row.baby_id)
@@ -116,23 +128,28 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
         </p>
       </div>
 
-      <Button variant="primary" className="h-14" disabled={busy} onClick={create}>
-        Start a new family
-      </Button>
+      {checked && (
+        <>
+          <Button variant="primary" className="h-14" disabled={busy} onClick={create}>
+            Start a new family
+          </Button>
 
-      <div className="flex items-center gap-3 text-xs text-text-muted">
-        <span className="h-px flex-1 bg-border" />
-        or
-        <span className="h-px flex-1 bg-border" />
-      </div>
+          <div className="flex items-center gap-3 text-xs text-text-muted">
+            <span className="h-px flex-1 bg-border" />
+            or
+            <span className="h-px flex-1 bg-border" />
+          </div>
+        </>
+      )}
 
       <input
         type="text"
         inputMode="text"
         autoCapitalize="characters"
+        maxLength={8}
         placeholder="PARTNER CODE"
         value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase())}
+        onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
         className="min-h-14 rounded-2xl border border-border bg-surface-2 px-4 text-center text-2xl tracking-[0.2em] text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-muted"
       />
       <Button variant="secondary" className="h-14" disabled={busy} onClick={join}>
