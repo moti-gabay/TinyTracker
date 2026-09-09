@@ -8,14 +8,17 @@ insert into auth.users (id, email) values
   ('33333333-3333-3333-3333-333333333333', 'stranger@example.com');
 
 -- A non-superuser role, because RLS is bypassed by the table owner.
+--
+-- It is a MEMBER of `authenticated` rather than being granted tables directly:
+-- the privileges under test then are exactly the ones the migrations hand out,
+-- so a dropped GRANT fails here instead of in production.
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'app_user') then
     create role app_user nologin;
   end if;
 end $$;
 grant usage on schema public, auth to app_user;
-grant select, insert, update, delete on all tables in schema public to app_user;
-grant execute on all functions in schema public to app_user;
+grant authenticated to app_user;
 grant execute on function auth.uid() to app_user;
 
 \echo '--- Parent A creates a family ---'
@@ -33,21 +36,40 @@ values
    'nursing', now() - interval '20 min', now() - interval '5 min',
    'left', 600, 300, '11111111-1111-1111-1111-111111111111',
    now() - interval '5 min');
-select count(*) as a_sees from public.care_events;
+do $$ begin
+  if (select count(*) from public.care_events) <> 1 then
+    raise exception 'A should see exactly 1 event';
+  end if;
+end $$;
 
 \echo '--- Stranger sees NOTHING (RLS) ---'
 set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
-select count(*) as stranger_sees_events from public.care_events;
-select count(*) as stranger_sees_families from public.families;
+do $$ begin
+  if (select count(*) from public.care_events) <> 0 then
+    raise exception 'stranger can see care_events';
+  end if;
+  if (select count(*) from public.families) <> 0 then
+    raise exception 'stranger can see families';
+  end if;
+end $$;
 
 \echo '--- Stranger cannot guess their way in by family_id ---'
-select count(*) as stranger_targeted from public.care_events
-  where family_id = :'fam_family_id';
+do $$ begin
+  if (select count(*) from public.care_events
+      where family_id = (select id from public.families
+                          where invite_code is not null limit 1)) <> 0 then
+    raise exception 'stranger reached events by targeting a family_id';
+  end if;
+end $$;
 
 \echo '--- Parent B joins with the invite code ---'
 set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 select * from public.join_family(:'fam_invite_code') \gset join_
-select count(*) as b_sees_events from public.care_events;
+do $$ begin
+  if (select count(*) from public.care_events) <> 1 then
+    raise exception 'B joined but cannot see the family event';
+  end if;
+end $$;
 
 \echo '--- A bad code is rejected ---'
 do $$ begin
@@ -57,33 +79,58 @@ exception when no_data_found then
   raise notice 'bad invite code correctly rejected';
 end $$;
 
+\echo '--- A member cannot start a second family (the old lockout) ---'
+do $$ begin
+  perform public.create_family('Second');
+  raise exception 'SHOULD NOT REACH: member created a second family';
+exception when sqlstate 'P0003' then
+  raise notice 'second family correctly refused';
+end $$;
+
+\echo '--- Re-joining the family you are already in stays idempotent ---'
+do $$ declare n int; begin
+  perform public.join_family((select invite_code from public.families limit 1));
+  select count(*) into n from public.family_members
+    where user_id = '22222222-2222-2222-2222-222222222222';
+  if n <> 1 then raise exception 'rejoin duplicated the membership row'; end if;
+end $$;
+
 \echo '--- Last-writer-wins: a stale offline write must NOT clobber ---'
 -- B (online, newer clock) corrects the feed.
 update public.care_events
   set right_seconds = 999, updated_at = now()
   where id = 'aaaaaaaa-0000-4000-8000-000000000001';
-select right_seconds as after_b_fresh_write from public.care_events
-  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
-
 -- A reconnects and pushes an edit made while offline an hour ago.
 update public.care_events
   set right_seconds = 111, updated_at = now() - interval '1 hour'
   where id = 'aaaaaaaa-0000-4000-8000-000000000001';
-select right_seconds as after_stale_write_rejected from public.care_events
-  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+do $$ begin
+  if (select right_seconds from public.care_events
+      where id = 'aaaaaaaa-0000-4000-8000-000000000001') <> 999 then
+    raise exception 'a stale write clobbered a newer one';
+  end if;
+end $$;
 
 \echo '--- A newer write DOES win ---'
 update public.care_events
   set right_seconds = 555, updated_at = now() + interval '1 min'
   where id = 'aaaaaaaa-0000-4000-8000-000000000001';
-select right_seconds as after_newer_write from public.care_events
-  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+do $$ begin
+  if (select right_seconds from public.care_events
+      where id = 'aaaaaaaa-0000-4000-8000-000000000001') <> 555 then
+    raise exception 'a newer write was rejected';
+  end if;
+end $$;
 
 \echo '--- Soft delete replicates as a tombstone, not a vanished row ---'
 update public.care_events set deleted_at = now(), updated_at = now() + interval '2 min'
   where id = 'aaaaaaaa-0000-4000-8000-000000000001';
-select (deleted_at is not null) as is_tombstoned from public.care_events
-  where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+do $$ begin
+  if not (select deleted_at is not null from public.care_events
+          where id = 'aaaaaaaa-0000-4000-8000-000000000001') then
+    raise exception 'soft delete did not leave a tombstone';
+  end if;
+end $$;
 
 \echo '--- kind_shape rejects a malformed event ---'
 do $$ begin
@@ -99,7 +146,57 @@ exception when check_violation then
 end $$;
 
 \echo '--- Cursor advances on the server clock, independent of client clock ---'
-select (server_updated_at > updated_at - interval '5 min') as cursor_is_server_stamped
-from public.care_events where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+do $$ begin
+  if not (select server_updated_at > updated_at - interval '5 min'
+          from public.care_events
+          where id = 'aaaaaaaa-0000-4000-8000-000000000001') then
+    raise exception 'server_updated_at was not server-stamped';
+  end if;
+end $$;
+
+\echo '--- Leaving a family that still has members keeps the family ---'
+do $$ begin
+  if public.leave_family() <> false then
+    raise exception 'B was not the last member, yet the family was deleted';
+  end if;
+  if (select count(*) from public.care_events) <> 0 then
+    raise exception 'B still sees the family events after leaving';
+  end if;
+end $$;
+
+\echo '--- ...and B can join again afterwards ---'
+select * from public.join_family(:'fam_invite_code') \gset rejoin_
+do $$ begin
+  if (select count(*) from public.care_events) <> 1 then
+    raise exception 'B could not rejoin after leaving';
+  end if;
+end $$;
+
+\echo '--- The last member out deletes the family, freeing the event ids ---'
+do $$ begin
+  if public.leave_family() <> false then
+    raise exception 'B leaving deleted a family A is still in';
+  end if;
+end $$;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+do $$ begin
+  if public.leave_family() <> true then
+    raise exception 'the last member out did not delete the family';
+  end if;
+end $$;
 
 reset role;
+do $$ begin
+  if (select count(*) from public.families) <> 0 then
+    raise exception 'the emptied family was not removed';
+  end if;
+  -- The cascade is what frees client-generated ids for re-adoption.
+  if (select count(*) from public.care_events) <> 0 then
+    raise exception 'care_events survived their family';
+  end if;
+  if (select count(*) from public.babies) <> 0 then
+    raise exception 'babies survived their family';
+  end if;
+end $$;
+
+\echo '--- All assertions passed ---'

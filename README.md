@@ -40,8 +40,19 @@ pnpm lint
 
 `supabase/rls_test.sql` exercises the security model against a plain Postgres
 container. It verifies that a non-member sees nothing, that the invite code is
-the only way in, and that a stale write from a device that was offline cannot
-overwrite a newer one.
+the only way in, that a member cannot strand themselves in a second family, and
+that a stale write from a device that was offline cannot overwrite a newer one.
+Every check raises on failure, so the script's exit code is the result.
+
+```bash
+docker run -d --name tt-pg -e POSTGRES_PASSWORD=pw postgres:16
+for f in test_setup migrations/0001_init migrations/0002_family_membership rls_test; do
+  docker cp "supabase/$f.sql" tt-pg:/tmp/ &&   docker exec tt-pg psql -U postgres -v ON_ERROR_STOP=1 -f "/tmp/$(basename $f).sql"
+done
+```
+
+`supabase/test_setup.sql` stands in for the `auth` schema, `auth.uid()` and the
+`anon`/`authenticated` roles that Supabase provides.
 
 ## How it works
 
