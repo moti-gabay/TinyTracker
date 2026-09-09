@@ -2,6 +2,8 @@ import Dexie from 'dexie'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { db } from '@/lib/db/db'
+import { useBabies } from '@/lib/db/babies'
+import { Segmented } from '@/components/ui/Segmented'
 import { useSession } from '@/lib/session'
 import { formatClock, formatDuration } from '@/lib/time/format'
 import { formatVolume } from '@/lib/units/volume'
@@ -48,25 +50,62 @@ function dayLabel(ms: number): string {
 
 export function HistoryScreen() {
   const familyId = useSession((s) => s.familyId)
+  const babies = useBabies(familyId)
   const [selected, setSelected] = useState<CareEvent | null>(null)
+  const [filter, setFilter] = useState('all')
 
+  const twins = babies.length > 1
+  // 'all' keeps the family index; a child uses the per-baby one. Both are
+  // covering, so neither filters in memory.
   const events = useLiveQuery(
     () =>
-      db.events
-        .where('[familyId+startedAt]')
-        .between([familyId, Dexie.minKey], [familyId, Dexie.maxKey])
+      (filter === 'all'
+        ? db.events
+            .where('[familyId+startedAt]')
+            .between([familyId, Dexie.minKey], [familyId, Dexie.maxKey])
+        : db.events
+            .where('[babyId+startedAt]')
+            .between([filter, Dexie.minKey], [filter, Dexie.maxKey])
+      )
         .reverse()
         .filter((e) => e.deletedAt === null)
         .limit(200)
         .toArray(),
-    [familyId],
+    [familyId, filter],
   )
 
+  const picker = twins ? (
+    <div className="border-b border-border p-3">
+      <Segmented
+        value={filter}
+        onChange={setFilter}
+        options={[
+          { value: 'all', label: 'All' },
+          ...babies.map((b) => ({ value: b.id, label: b.name })),
+        ]}
+      />
+    </div>
+  ) : null
+
+  // Only worth naming the child when both are on screen at once.
+  const nameFor = (id: string) =>
+    twins && filter === 'all' ? babies.find((b) => b.id === id)?.name : undefined
+
   if (events === undefined) {
-    return <div className="p-6 text-center text-text-muted">Loading…</div>
+    return (
+      <>
+        {picker}
+        <div className="p-6 text-center text-text-muted">Loading…</div>
+      </>
+    )
   }
   if (events.length === 0) {
-    return <div className="p-6 text-center text-text-muted">No logs yet.</div>
+    return (
+      <>
+        {picker}
+        <div className="p-6 text-center text-text-muted">No logs yet.</div>
+      </>
+    )
   }
 
   // Group into days up front so rendering stays a pure map over the result.
@@ -80,6 +119,7 @@ export function HistoryScreen() {
 
   return (
     <>
+      {picker}
       {groups.map((group) => (
         <section key={group.day}>
           <h2 className="bg-surface-2 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -88,6 +128,7 @@ export function HistoryScreen() {
           <ul className="divide-y divide-border">
             {group.items.map((e) => {
               const { title, detail } = describe(e)
+              const who = nameFor(e.babyId)
               return (
                 <li key={e.id}>
                   <button
@@ -99,7 +140,7 @@ export function HistoryScreen() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-text">
-                        {title}
+                        {who ? `${who} · ${title}` : title}
                       </span>
                       <span className="block truncate text-sm text-text-muted">
                         {detail}

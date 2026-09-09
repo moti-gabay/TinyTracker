@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useTheme, type ThemePreference } from '@/lib/theme/useTheme'
 import { getUnit, setUnit, type VolumeUnit } from '@/lib/units/volume'
-import { cn } from '@/components/ui/cn'
 import { Button } from '@/components/ui/Button'
+import { Segmented } from '@/components/ui/Segmented'
 import { useToast } from '@/components/ui/useToast'
 import { db, clearLocalData } from '@/lib/db/db'
 import { supabase, isSyncConfigured } from '@/lib/supabase/client'
@@ -12,7 +12,9 @@ import { AuthScreen } from '@/features/family/AuthScreen'
 import { FamilyScreen } from '@/features/family/FamilyScreen'
 import { useInstallPrompt } from '@/lib/pwa/useInstallPrompt'
 import { useAppUpdate } from '@/lib/pwa/appUpdate'
-import { clearSessionIds } from '@/lib/session'
+import { clearSessionIds, useSession } from '@/lib/session'
+import { useBabies } from '@/lib/db/babies'
+import { addBaby, renameBaby } from '@/lib/sync/babies'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -23,37 +25,69 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T
-  options: { value: T; label: string }[]
-  onChange: (v: T) => void
-}) {
+/**
+ * Add and rename children.
+ *
+ * Both need the network: a baby must exist server-side before any event can
+ * reference it. Logging for a child that already exists stays fully offline.
+ */
+function Children({ familyId }: { familyId: string }) {
+  const babies = useBabies(familyId)
+  const showToast = useToast((s) => s.show)
+  const [busy, setBusy] = useState(false)
+
+  const add = async () => {
+    if (!navigator.onLine) return showToast('Connect to add a child.')
+    setBusy(true)
+    const ok = await addBaby(familyId, `Baby ${babies.length + 1}`, null)
+    setBusy(false)
+    showToast(ok ? 'Child added' : 'Could not add a child')
+  }
+
+  const rename = async (id: string, name: string, previous: string) => {
+    const next = name.trim()
+    if (!next || next === previous) return
+    if (!navigator.onLine) return showToast('Connect to rename.')
+    if (!(await renameBaby(familyId, id, { name: next })))
+      showToast('Could not save that name')
+  }
+
   return (
-    <div className="flex gap-2">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            'min-h-12 flex-1 rounded-2xl border px-3 text-sm font-semibold',
-            value === o.value
-              ? 'border-accent bg-accent text-accent-contrast'
-              : 'border-border bg-surface-2 text-text-muted',
-          )}
-        >
-          {o.label}
-        </button>
+    <div className="flex flex-col gap-3">
+      {babies.map((b) => (
+        <div key={b.id} className="flex gap-2">
+          <input
+            type="text"
+            defaultValue={b.name}
+            aria-label="Child name"
+            onBlur={(e) => void rename(b.id, e.target.value, b.name)}
+            className="min-h-12 min-w-0 flex-1 rounded-2xl border border-border bg-surface-2 px-4 text-base text-text"
+          />
+          <input
+            type="date"
+            defaultValue={b.bornAt ?? ''}
+            aria-label="Born on"
+            onBlur={(e) =>
+              void renameBaby(familyId, b.id, { bornAt: e.target.value || null })
+            }
+            className="min-h-12 shrink-0 rounded-2xl border border-border bg-surface-2 px-3 text-sm text-text"
+          />
+        </div>
       ))}
+      <Button variant="secondary" className="h-12 w-full" disabled={busy} onClick={add}>
+        Add a child
+      </Button>
+      <p className="text-xs text-text-muted">
+        Twins get their own logs, and a name chip appears in the header to switch
+        between them.
+      </p>
     </div>
   )
 }
 
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme()
+  const familyId = useSession((s) => s.familyId)
   const [unit, setUnitState] = useState<VolumeUnit>(getUnit())
   const { session, loading } = useAuthSession()
   const { canInstall, installed, promptInstall, needsIosInstructions } =
@@ -162,6 +196,12 @@ export function SettingsScreen() {
           </>
         )}
       </Row>
+
+      {isSyncConfigured && session && (
+        <Row label="Children">
+          <Children familyId={familyId} />
+        </Row>
+      )}
 
       <Row label="Install">
         {installed ? (

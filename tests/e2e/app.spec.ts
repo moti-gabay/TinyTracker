@@ -208,3 +208,92 @@ test('editing an entry corrects its time and re-queues it', async ({ page }) => 
   // The create and the edit are both queued for the partner's device.
   expect(outbox).toHaveLength(2)
 })
+
+
+/**
+ * Seeds two children into the local mirror, as a family sync would.
+ *
+ * Writing straight to IndexedDB keeps the twins path testable with no
+ * Supabase: the babies table is a mirror, so seeding it is exactly what a
+ * pull does.
+ */
+async function seedTwins(page: Page) {
+  // Opening with no version would CREATE an empty v1 database if the app has
+  // not finished its own open yet, and the babies store would not exist.
+  await page.waitForFunction(async () => {
+    const dbs = await indexedDB.databases()
+    return dbs.some((d) => d.name === 'tinytracker' && (d.version ?? 0) >= 2)
+  })
+  await page.evaluate(async () => {
+    const familyId = localStorage.getItem('tt.familyId')!
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('tinytracker')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('babies', 'readwrite')
+      const store = tx.objectStore('babies')
+      store.put({ id: 'baby-ada', familyId, name: 'Ada', bornAt: null })
+      store.put({ id: 'baby-bo', familyId, name: 'Bo', bornAt: null })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+    db.close()
+    localStorage.setItem('tt.babyId', 'baby-ada')
+  })
+}
+
+test('twins: the header chip picks which child a log belongs to', async ({ page }) => {
+  await page.goto('/')
+  await seedTwins(page)
+  await page.reload()
+
+  const chip = page.getByRole('button', { name: /Logging for/ })
+  await expect(chip).toHaveText('Ada')
+
+  await page.getByRole('link', { name: 'Diaper' }).click()
+  await page.getByRole('button', { name: 'Both' }).click()
+
+  // Logging a diaper returns to the home screen, where the chip lives.
+  await chip.click()
+  await expect(chip).toHaveText('Bo')
+
+  await page.getByRole('link', { name: 'Diaper' }).click()
+  await page.getByRole('button', { name: 'Both' }).click()
+
+  const { events } = await readEvents(page)
+  expect(events).toHaveLength(2)
+  expect(events.map((e) => e.babyId).sort()).toEqual(['baby-ada', 'baby-bo'])
+
+  // History shows both children, and filtering narrows to one.
+  await page.getByRole('link', { name: 'History' }).click()
+  await expect(page.getByText('Ada · Diaper')).toBeVisible()
+  await expect(page.getByText('Bo · Diaper')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Ada', exact: true }).click()
+  await expect(page.getByRole('listitem')).toHaveCount(1)
+  await expect(page.getByText('Bo · Diaper')).toHaveCount(0)
+})
+
+test('twins: the chip locks while a feed is running', async ({ page }) => {
+  await page.goto('/')
+  await seedTwins(page)
+  await page.reload()
+
+  const chip = page.getByRole('button', { name: /Logging for/ })
+
+  await page.getByRole('button', { name: /^LEFT/ }).click()
+  await expect(page.getByRole('timer')).toBeVisible()
+  // The overlay covers the header, so the running feed names its own child.
+  const overlay = page.locator('div.fixed.inset-0.z-40')
+  await expect(overlay.getByText('Ada')).toBeVisible()
+  // Switching mid-feed is locked: the save is already bound to Ada, and a
+  // header saying otherwise is its own kind of wrong at 3 AM.
+  await expect(chip).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await page.getByRole('button', { name: /Discard/ }).click()
+
+  await expect(chip).toBeEnabled()
+})

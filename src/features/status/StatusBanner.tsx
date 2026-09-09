@@ -8,6 +8,7 @@ import { useTheme } from '@/lib/theme/useTheme'
 import { useTimerStore } from '@/features/nursing/timerStore'
 import { elapsedMs, isRunning } from '@/features/nursing/timerMachine'
 import { useLastFeed } from './useLastFeed'
+import { BabyChip } from './BabyChip'
 
 /**
  * Answers the only question that matters at 3 AM:
@@ -17,8 +18,8 @@ import { useLastFeed } from './useLastFeed'
  * feeding cycles are start-to-start.
  */
 export function StatusBanner() {
-  const familyId = useSession((s) => s.familyId)
-  const lastFeed = useLastFeed(familyId)
+  const babyId = useSession((s) => s.babyId)
+  const lastFeed = useLastFeed(babyId)
   const timer = useTimerStore((s) => s.state)
   const { theme, toggle } = useTheme()
   // 30s is enough for an "ago" readout and costs almost nothing.
@@ -58,6 +59,8 @@ export function StatusBanner() {
         <div className="truncate text-lg font-semibold text-text">{primary}</div>
         <div className="truncate text-sm text-text-muted">{secondary}</div>
       </div>
+
+      <BabyChip />
 
       <button
         onClick={toggle}

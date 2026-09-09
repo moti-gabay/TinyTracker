@@ -9,6 +9,7 @@ import { Sheet } from '@/components/ui/Sheet'
 import { useToast } from '@/components/ui/useToast'
 import { tap } from '@/lib/haptics'
 import { useSession } from '@/lib/session'
+import { useBabies } from '@/lib/db/babies'
 import { saveNursing } from '@/lib/db/repo'
 import { cn } from '@/components/ui/cn'
 
@@ -22,6 +23,7 @@ export function TimerOverlay() {
   const state = useTimerStore((s) => s.state)
   const store = useTimerStore()
   const { familyId, babyId, userId } = useSession()
+  const babies = useBabies(familyId)
   const showToast = useToast((s) => s.show)
 
   const live = isRunning(state.status)
@@ -65,6 +67,9 @@ export function TimerOverlay() {
   const onLeft = state.currentSide === 'left'
   const paused = state.status === 'paused'
   const confirming = state.status === 'stopping' || state.status === 'saving'
+  // Only worth the line when there is more than one child to confuse.
+  const feedingFor =
+    babies.length > 1 ? babies.find((b) => b.id === state.babyId)?.name : undefined
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-bg">
@@ -81,6 +86,10 @@ export function TimerOverlay() {
         >
           {onLeft ? 'LEFT' : 'RIGHT'}
         </div>
+
+        {feedingFor && (
+          <div className="mb-2 text-sm text-text-muted">{feedingFor}</div>
+        )}
 
         <div
           className="text-7xl font-bold tabular-nums text-text"

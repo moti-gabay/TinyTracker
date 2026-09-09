@@ -12,8 +12,8 @@ import type { Side } from '@/lib/db/types'
 export function HomeScreen() {
   const state = useTimerStore((s) => s.state)
   const start = useTimerStore((s) => s.start)
-  const familyId = useSession((s) => s.familyId)
-  const lastFeed = useLastFeed(familyId)
+  const babyId = useSession((s) => s.babyId)
+  const lastFeed = useLastFeed(babyId)
   const [params, setParams] = useSearchParams()
 
   // PWA shortcut: /?start=left begins a feed straight from the home screen.

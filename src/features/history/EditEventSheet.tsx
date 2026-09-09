@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { Sheet } from '@/components/ui/Sheet'
 import { Button } from '@/components/ui/Button'
 import { NumberStepper } from '@/components/ui/NumberStepper'
+import { Segmented } from '@/components/ui/Segmented'
 import { useToast } from '@/components/ui/useToast'
 import { deleteEvent, updateEvent } from '@/lib/db/repo'
+import { useBabies } from '@/lib/db/babies'
 import { formatVolume, getUnit, stepMl } from '@/lib/units/volume'
 import type { CareEvent } from '@/lib/db/types'
 
@@ -29,8 +31,10 @@ export function EditEventSheet({
 }) {
   const unit = getUnit()
   const showToast = useToast((s) => s.show)
+  const babies = useBabies(event?.familyId ?? '')
   const [startedAt, setStartedAt] = useState('')
   const [amountMl, setAmountMl] = useState(0)
+  const [babyId, setBabyId] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [key, setKey] = useState('')
 
@@ -39,6 +43,7 @@ export function EditEventSheet({
     setKey(event.id)
     setStartedAt(toLocalInput(event.startedAt))
     setAmountMl(event.amountMl ?? 0)
+    setBabyId(event.babyId)
     setConfirmDelete(false)
   }
 
@@ -55,6 +60,7 @@ export function EditEventSheet({
     await updateEvent(event.id, {
       startedAt: parsed,
       ...(isBottle ? { amountMl } : {}),
+      ...(babyId && babyId !== event.babyId ? { babyId } : {}),
     })
     showToast('Entry updated')
     onClose()
@@ -72,6 +78,17 @@ export function EditEventSheet({
             className="min-h-14 rounded-2xl border border-border bg-surface-2 px-4 text-base text-text"
           />
         </label>
+
+        {babies.length > 1 && (
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-text-muted">Child</span>
+            <Segmented
+              value={babyId}
+              onChange={setBabyId}
+              options={babies.map((b) => ({ value: b.id, label: b.name }))}
+            />
+          </label>
+        )}
 
         {isBottle && (
           <NumberStepper

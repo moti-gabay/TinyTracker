@@ -8,12 +8,15 @@ import type { CareEvent } from '@/lib/db/types'
  *
  * Diapers and pumping are excluded on purpose: the banner answers exactly one
  * question, "when did the baby last eat", which drives the 2-3 hour cycle.
+ *
+ * Scoped to one child: with twins, a shared "last fed" would average two
+ * schedules into a number that describes neither.
  */
-export function useLastFeed(familyId: string): CareEvent | null | undefined {
+export function useLastFeed(babyId: string): CareEvent | null | undefined {
   return useLiveQuery(async () => {
     const rows = await db.events
-      .where('[familyId+startedAt]')
-      .between([familyId, Dexie.minKey], [familyId, Dexie.maxKey])
+      .where('[babyId+startedAt]')
+      .between([babyId, Dexie.minKey], [babyId, Dexie.maxKey])
       .reverse()
       .filter(
         (e) =>
@@ -22,5 +25,5 @@ export function useLastFeed(familyId: string): CareEvent | null | undefined {
       .limit(1)
       .toArray()
     return rows[0] ?? null
-  }, [familyId])
+  }, [babyId])
 }
