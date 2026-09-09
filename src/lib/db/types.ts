@@ -1,4 +1,18 @@
 export type Side = 'left' | 'right'
+
+/**
+ * A child in the family, mirrored from `public.babies`.
+ *
+ * Mirrored rather than queued: unlike an event, a baby is created on the
+ * server first (so its id is the one the FK on care_events wants), and a
+ * replace-on-fetch mirror needs no cursor and no conflict rule.
+ */
+export interface Baby {
+  id: string
+  familyId: string
+  name: string
+  bornAt: string | null
+}
 export type EventKind = 'nursing' | 'bottle' | 'pump' | 'diaper'
 export type BottleContent = 'formula' | 'breast_milk' | 'mixed'
 export type DiaperType = 'wet' | 'dirty' | 'both'

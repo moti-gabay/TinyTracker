@@ -24,6 +24,14 @@ export interface Segment {
 export interface TimerState {
   status: TimerStatus
   sessionId: string | null
+  /**
+   * The child this feed was started for, captured at START.
+   *
+   * Read at save time instead of the live selection so that switching the
+   * header chip mid-feed -- or a partner's phone changing it -- can never
+   * attribute a feed to the wrong twin.
+   */
+  babyId: string | null
   startedAt: number | null
   currentSide: Side | null
   segments: Segment[]
@@ -36,7 +44,7 @@ export interface TimerState {
 }
 
 export type TimerAction =
-  | { type: 'START'; side: Side; id: string; now: number }
+  | { type: 'START'; side: Side; id: string; babyId: string; now: number }
   | { type: 'PAUSE'; now: number }
   | { type: 'RESUME'; now: number }
   | { type: 'SWITCH'; side: Side; now: number }
@@ -50,6 +58,7 @@ export type TimerAction =
 export const idleState: TimerState = {
   status: 'idle',
   sessionId: null,
+  babyId: null,
   startedAt: null,
   currentSide: null,
   segments: [],
@@ -73,6 +82,7 @@ export function timerReducer(state: TimerState, action: TimerAction): TimerState
       return {
         status: 'active',
         sessionId: action.id,
+        babyId: action.babyId,
         startedAt: action.now,
         currentSide: action.side,
         segments: [{ side: action.side, startedAt: action.now, endedAt: null }],

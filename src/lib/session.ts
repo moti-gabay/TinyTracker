@@ -12,9 +12,11 @@ import { newId } from '@/lib/db/repo'
  */
 interface SessionState {
   familyId: string
+  /** The child new logs are attributed to. One baby families never change it. */
   babyId: string
   userId: string | null
   setFamily: (familyId: string, babyId: string) => void
+  selectBaby: (babyId: string) => void
   setUserId: (userId: string | null) => void
 }
 
@@ -34,6 +36,10 @@ export const useSession = create<SessionState>((set) => ({
     writeLocal(StorageKeys.familyId, familyId)
     writeLocal(StorageKeys.babyId, babyId)
     set({ familyId, babyId })
+  },
+  selectBaby: (babyId) => {
+    writeLocal(StorageKeys.babyId, babyId)
+    set({ babyId })
   },
   setUserId: (userId) => set({ userId }),
 }))

@@ -126,6 +126,38 @@ export async function deleteEvent(id: string): Promise<void> {
   await writeAndQueue({ ...existing, deletedAt: now, updatedAt: now })
 }
 
+/**
+ * Re-point events logged before a family existed, then re-queue them.
+ *
+ * Lives here rather than in the family screen because it writes both events
+ * and outbox, and that pairing is this module's invariant to keep.
+ */
+export async function adoptOrphans(
+  localFamilyId: string,
+  familyId: string,
+  babyId: string,
+): Promise<number> {
+  if (familyId === localFamilyId) return 0
+  const orphans = await db.events.where('familyId').equals(localFamilyId).toArray()
+  if (orphans.length === 0) return 0
+  const now = Date.now()
+  await db.transaction('rw', db.events, db.outbox, async () => {
+    for (const e of orphans) {
+      await db.events.put({ ...e, familyId, babyId, updatedAt: now })
+      await db.outbox.add({
+        eventId: e.id,
+        op: 'upsert',
+        createdAt: now,
+        attempts: 0,
+        lastError: null,
+        dead: 0,
+      })
+    }
+  })
+  notify()
+  return orphans.length
+}
+
 // -- Convenience constructors used by the feature screens -------------------
 
 export function saveNursing(args: {

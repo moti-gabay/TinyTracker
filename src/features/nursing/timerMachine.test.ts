@@ -16,10 +16,15 @@ function run(actions: TimerAction[], from: TimerState = idleState): TimerState {
   return actions.reduce(timerReducer, from)
 }
 
-const start = (now = T0, side: 'left' | 'right' = 'left'): TimerAction => ({
+const start = (
+  now = T0,
+  side: 'left' | 'right' = 'left',
+  babyId = 'baby-1',
+): TimerAction => ({
   type: 'START',
   side,
   id: 'sess-1',
+  babyId,
   now,
 })
 
@@ -34,9 +39,37 @@ describe('timerMachine transitions', () => {
   })
 
   it('ignores START while a session is already running', () => {
-    const st = run([start(), { type: 'START', side: 'right', id: 'sess-2', now: T0 + m(1) }])
+    const st = run([
+      start(),
+      { type: 'START', side: 'right', id: 'sess-2', babyId: 'baby-2', now: T0 + m(1) },
+    ])
     expect(st.sessionId).toBe('sess-1')
     expect(st.currentSide).toBe('left')
+    // The running feed keeps its child too, or a tandem tap would silently
+    // re-attribute a feed already in progress.
+    expect(st.babyId).toBe('baby-1')
+  })
+
+  it('captures the child at START and clears it when the session ends', () => {
+    const st = run([start(T0, 'left', 'baby-2')])
+    expect(st.babyId).toBe('baby-2')
+
+    const saved = run(
+      [
+        { type: 'STOP', now: T0 + m(10) },
+        { type: 'CONFIRM' },
+        { type: 'SAVED' },
+      ],
+      st,
+    )
+    expect(saved).toEqual(idleState)
+    expect(saved.babyId).toBeNull()
+
+    const discarded = run(
+      [{ type: 'STOP', now: T0 + m(10) }, { type: 'DISCARD' }],
+      st,
+    )
+    expect(discarded.babyId).toBeNull()
   })
 
   it('pauses and resumes, accumulating paused time', () => {

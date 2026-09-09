@@ -3,7 +3,9 @@ import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/useToast'
 import { useSession, clearSessionIds } from '@/lib/session'
-import { db, clearLocalData } from '@/lib/db/db'
+import { clearLocalData } from '@/lib/db/db'
+import { adoptOrphans } from '@/lib/db/repo'
+import { pullBabies } from '@/lib/sync/babies'
 
 type Existing = { id: string; code: string; members: number }
 
@@ -56,29 +58,16 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** Move any locally-logged events onto the real family, then re-queue them. */
+  /**
+   * Adopt anything logged before this family existed, then mirror its children.
+   *
+   * Pre-family logs all land on the first child: only one baby can have
+   * existed locally before there was a family to hold more.
+   */
   async function adopt(familyId: string, babyId: string) {
-    if (familyId === localFamilyId) {
-      setFamily(familyId, babyId)
-      return
-    }
-    const orphans = await db.events.where('familyId').equals(localFamilyId).toArray()
-    if (orphans.length > 0) {
-      await db.transaction('rw', db.events, db.outbox, async () => {
-        for (const e of orphans) {
-          await db.events.put({ ...e, familyId, babyId, updatedAt: Date.now() })
-          await db.outbox.add({
-            eventId: e.id,
-            op: 'upsert',
-            createdAt: Date.now(),
-            attempts: 0,
-            lastError: null,
-            dead: 0,
-          })
-        }
-      })
-    }
+    await adoptOrphans(localFamilyId, familyId, babyId)
     setFamily(familyId, babyId)
+    await pullBabies(familyId)
   }
 
   const explain = (e: { code?: string; message: string }) =>

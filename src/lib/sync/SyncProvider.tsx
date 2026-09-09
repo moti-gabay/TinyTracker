@@ -4,6 +4,7 @@ import { useSession } from '@/lib/session'
 import { onLocalChange } from '@/lib/db/repo'
 import { pushOutbox } from './push'
 import { pullSince } from './pull'
+import { pullBabies } from './babies'
 import { subscribeFamily } from './realtime'
 
 /**
@@ -36,6 +37,7 @@ export function SyncProvider() {
     const sync = () => {
       void pushOutbox()
       void pullSince(familyId)
+      void pullBabies(familyId)
     }
 
     sync()

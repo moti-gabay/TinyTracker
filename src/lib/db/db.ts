@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { CareEvent, MetaRow, OutboxItem } from './types'
+import type { Baby, CareEvent, MetaRow, OutboxItem } from './types'
 
 /**
  * The local database is the app's source of truth. Every screen reads from
@@ -10,6 +10,7 @@ class TinyTrackerDB extends Dexie {
   events!: EntityTable<CareEvent, 'id'>
   outbox!: EntityTable<OutboxItem, 'seq'>
   meta!: EntityTable<MetaRow, 'key'>
+  babies!: EntityTable<Baby, 'id'>
 
   constructor() {
     super('tinytracker')
@@ -17,6 +18,16 @@ class TinyTrackerDB extends Dexie {
       events: '&id, familyId, kind, updatedAt, [familyId+startedAt]',
       outbox: '++seq, eventId, dead',
       meta: '&key',
+    })
+    // v2 adds twins. Every existing row already carries a babyId, so Dexie
+    // just builds the new index -- no data upgrade is needed. [familyId+...]
+    // stays because History still shows both children together.
+    this.version(2).stores({
+      events:
+        '&id, familyId, kind, updatedAt, [familyId+startedAt], [babyId+startedAt]',
+      outbox: '++seq, eventId, dead',
+      meta: '&key',
+      babies: '&id, familyId',
     })
   }
 }
@@ -37,9 +48,10 @@ export async function setCursor(familyId: string, value: string): Promise<void> 
 
 /** Sign-out / family switch. Wipes every trace of the previous family. */
 export async function clearLocalData(): Promise<void> {
-  await db.transaction('rw', db.events, db.outbox, db.meta, async () => {
+  await db.transaction('rw', db.events, db.outbox, db.meta, db.babies, async () => {
     await db.events.clear()
     await db.outbox.clear()
     await db.meta.clear()
+    await db.babies.clear()
   })
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { StorageKeys, readJson, removeLocal, writeJson } from '@/lib/storage'
 import { newId } from '@/lib/db/repo'
+import { useSession } from '@/lib/session'
 import type { Side } from '@/lib/db/types'
 import {
   idleState,
@@ -39,7 +40,8 @@ function hydrate(): TimerState {
   // 'saving' means the tab died mid-write. The local write is transactional,
   // so drop back to the confirmation and let the parent re-confirm.
   if (saved.status === 'saving') return { ...saved, status: 'stopping' }
-  return saved
+  // A timer persisted by a build that predates twins has no babyId.
+  return { ...saved, babyId: saved.babyId ?? null }
 }
 
 function persist(state: TimerState) {
@@ -58,7 +60,13 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   },
 
   start: (side) =>
-    get().dispatch({ type: 'START', side, id: newId(), now: Date.now() }),
+    get().dispatch({
+      type: 'START',
+      side,
+      id: newId(),
+      babyId: useSession.getState().babyId,
+      now: Date.now(),
+    }),
   pause: () => get().dispatch({ type: 'PAUSE', now: Date.now() }),
   resume: () => get().dispatch({ type: 'RESUME', now: Date.now() }),
   switchSide: (side) => get().dispatch({ type: 'SWITCH', side, now: Date.now() }),

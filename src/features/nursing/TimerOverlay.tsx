@@ -40,7 +40,7 @@ export function TimerOverlay() {
       await saveNursing({
         id: state.sessionId ?? undefined,
         familyId,
-        babyId,
+        babyId: state.babyId ?? babyId,
         createdBy: userId,
         startedAt: state.startedAt ?? finishedAt,
         endedAt: finishedAt,
