@@ -144,6 +144,28 @@ test('logs bottle, pump and diaper entries', async ({ page }) => {
   await expect(page.getByText('Wet + dirty')).toBeVisible()
 })
 
+test('history tabs split feeds, pumping and diapers', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Diaper' }).click()
+  await page.getByRole('button', { name: 'Wet' }).click()
+  await page.getByRole('link', { name: 'Bottle' }).click()
+  await page.getByRole('button', { name: 'Log bottle' }).click()
+
+  await page.getByRole('link', { name: 'History' }).click()
+  await expect(page.getByRole('listitem')).toHaveCount(2)
+
+  await page.getByRole('button', { name: 'Feeding' }).click()
+  await expect(page.getByRole('listitem')).toHaveCount(1)
+  await expect(page.locator('li')).toContainText('Bottle')
+
+  await page.getByRole('button', { name: 'Diapers' }).click()
+  await expect(page.getByRole('listitem')).toHaveCount(1)
+  await expect(page.locator('li')).toContainText('Diaper')
+
+  await page.getByRole('button', { name: 'Pumping' }).click()
+  await expect(page.getByText('No pumping sessions yet.')).toBeVisible()
+})
+
 test('deleting from history tombstones rather than dropping the row', async ({
   page,
 }) => {
@@ -152,7 +174,7 @@ test('deleting from history tombstones rather than dropping the row', async ({
   await page.getByRole('button', { name: 'Wet' }).click()
 
   await page.getByRole('link', { name: 'History' }).click()
-  await page.getByRole('button', { name: /Diaper/ }).first().click()
+  await page.locator('li').getByRole('button', { name: /Diaper/ }).first().click()
   await page.getByRole('button', { name: 'Delete entry' }).click()
   // Deletion is two-step: nothing destructive is ever a single tap.
   await page.getByRole('button', { name: 'Tap again to confirm delete' }).click()
@@ -191,7 +213,7 @@ test('editing an entry corrects its time and re-queues it', async ({ page }) => 
   await page.getByRole('button', { name: 'Log bottle' }).click()
 
   await page.getByRole('link', { name: 'History' }).click()
-  await page.getByRole('button', { name: /Bottle/ }).first().click()
+  await page.locator('li').getByRole('button', { name: /Bottle/ }).first().click()
 
   const field = page.locator('input[type="datetime-local"]')
   await expect(field).toBeVisible()
@@ -222,7 +244,7 @@ async function seedTwins(page: Page) {
   // not finished its own open yet, and the babies store would not exist.
   await page.waitForFunction(async () => {
     const dbs = await indexedDB.databases()
-    return dbs.some((d) => d.name === 'tinytracker' && (d.version ?? 0) >= 2)
+    return dbs.some((d) => d.name === 'tinytracker' && (d.version ?? 0) >= 3)
   })
   await page.evaluate(async () => {
     const familyId = localStorage.getItem('tt.familyId')!

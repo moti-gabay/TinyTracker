@@ -1,14 +1,27 @@
-import Dexie from 'dexie'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
-import { db } from '@/lib/db/db'
 import { useBabies } from '@/lib/db/babies'
 import { Segmented } from '@/components/ui/Segmented'
 import { useSession } from '@/lib/session'
 import { formatClock, formatDuration } from '@/lib/time/format'
 import { formatVolume } from '@/lib/units/volume'
 import { EditEventSheet } from './EditEventSheet'
+import { recentEvents, type HistoryCategory } from './historyQuery'
 import type { CareEvent } from '@/lib/db/types'
+
+const CATEGORIES: { value: HistoryCategory; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'feeding', label: 'Feeding' },
+  { value: 'pump', label: 'Pumping' },
+  { value: 'diaper', label: 'Diapers' },
+]
+
+const EMPTY: Record<HistoryCategory, string> = {
+  all: 'No logs yet.',
+  feeding: 'No feedings yet.',
+  pump: 'No pumping sessions yet.',
+  diaper: 'No diapers yet.',
+}
 
 function describe(e: CareEvent): { title: string; detail: string } {
   switch (e.kind) {
@@ -53,39 +66,31 @@ export function HistoryScreen() {
   const babies = useBabies(familyId)
   const [selected, setSelected] = useState<CareEvent | null>(null)
   const [filter, setFilter] = useState('all')
+  const [category, setCategory] = useState<HistoryCategory>('all')
 
   const twins = babies.length > 1
-  // 'all' keeps the family index; a child uses the per-baby one. Both are
-  // covering, so neither filters in memory.
+  // 'all' keeps the family index; a child uses the per-baby one. Every
+  // category is a covering range scan, so nothing filters kinds in memory.
   const events = useLiveQuery(
-    () =>
-      (filter === 'all'
-        ? db.events
-            .where('[familyId+startedAt]')
-            .between([familyId, Dexie.minKey], [familyId, Dexie.maxKey])
-        : db.events
-            .where('[babyId+startedAt]')
-            .between([filter, Dexie.minKey], [filter, Dexie.maxKey])
-      )
-        .reverse()
-        .filter((e) => e.deletedAt === null)
-        .limit(200)
-        .toArray(),
-    [familyId, filter],
+    () => recentEvents(filter === 'all' ? { familyId } : { babyId: filter }, category),
+    [familyId, filter, category],
   )
 
-  const picker = twins ? (
-    <div className="border-b border-border p-3">
-      <Segmented
-        value={filter}
-        onChange={setFilter}
-        options={[
-          { value: 'all', label: 'All' },
-          ...babies.map((b) => ({ value: b.id, label: b.name })),
-        ]}
-      />
+  const picker = (
+    <div className="flex flex-col gap-2 border-b border-border p-3">
+      <Segmented value={category} onChange={setCategory} options={CATEGORIES} />
+      {twins && (
+        <Segmented
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'All' },
+            ...babies.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+        />
+      )}
     </div>
-  ) : null
+  )
 
   // Only worth naming the child when both are on screen at once.
   const nameFor = (id: string) =>
@@ -103,7 +108,7 @@ export function HistoryScreen() {
     return (
       <>
         {picker}
-        <div className="p-6 text-center text-text-muted">No logs yet.</div>
+        <div className="p-6 text-center text-text-muted">{EMPTY[category]}</div>
       </>
     )
   }
@@ -133,7 +138,7 @@ export function HistoryScreen() {
                 <li key={e.id}>
                   <button
                     onClick={() => setSelected(e)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-2"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-start active:bg-surface-2"
                   >
                     <span className="w-12 shrink-0 text-sm tabular-nums text-text-muted">
                       {formatClock(e.startedAt)}

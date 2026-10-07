@@ -1,180 +1,194 @@
-# TinyTracker — Multi-child support + second-user auth fix
+# TinyTracker — Hebrew/RTL + categorized History
 
 ## Context
 
-Two problems, one shipped app (Vercel + Supabase `qfprmjbhjpjkhpepynll`, local-first Dexie + outbox → Postgres sync).
+Two requests from the primary user of the app:
 
-1. **A second parent cannot get in.** Symptom (confirmed by user): sign-in itself errors at the email/verify step ("already registered" / "token expired"). Live probes today show sign-ups are **enabled**, both RPCs exist and are executable, migration is applied — so the cause is in the email/OTP path plus code that hides real errors. Separately, the family screen has a hard lockout defect: a partner who taps the big "Start a new family" button first can never join the real family (no guard server-side, no "leave" client-side).
-2. **Twins.** The schema is already 1-family→N-babies and every write already carries `babyId`; what's missing is a local babies list, a way to *select* the child, per-child reads, and the timer remembering which child it started for.
+1. **Hebrew UI with RTL.** Every user-facing string is a hard-coded English literal spread over 19 files (~180 strings). There is no i18n layer, no `lang`/`dir` handling, and `index.html` pins `lang="en"`. The settings pattern to copy already exists: `useTheme.ts` (module listeners + `useSyncExternalStore` + pre-paint bootstrap in `index.html`).
+2. **History is one undifferentiated list.** `HistoryScreen.tsx` shows every kind interleaved; pumping sessions bury feeds. Kind is only ever filtered in memory (`useLastFeed.ts:21`), and the screen's comment explicitly values covering indexes ("neither filters in memory").
 
-Constraint that governs everything: the events+outbox transaction, family-scoped pull/realtime cursor, LWW and soft deletes must not change. This plan touches none of them.
+Constraints that hold: no sync-engine changes (events+outbox transaction, cursor, LWW, realtime untouched); the existing twins child filter in History stays and composes with the new category tabs; offline-first (Dexie is the only read path).
 
-Decisions made with the user: header chip switcher (hidden for single-child families); one running timer at a time (tandem later); one family per user in v1.
-
----
-
-## Phase 0 — Unblock the partner now (no schema change)
-
-### 0.1 Dashboard (Authentication section) — do these first, in order
-
-1. **Email Templates → "Confirm signup"** must contain `{{ .Token }}`. This is the template a **new** user receives from `signInWithOtp` (`shouldCreateUser: true`); existing users get "Magic Link". Fixing only Magic Link (done earlier) leaves every new sign-up with a link and no code. Suggested body for both templates: `Your TinyTracker code is {{ .Token }}` (keep `{{ .ConfirmationURL }}` as a fallback line).
-2. **URL Configuration** → Site URL = `https://<app>.vercel.app`, Redirect URLs `https://<app>.vercel.app/**`. Then a tapped link also signs the user in (`detectSessionInUrl: true` in [client.ts](src/lib/supabase/client.ts)) instead of dying on `localhost:3000`.
-3. **SMTP** (Project Settings → Auth): built-in SMTP is 2–4 emails/hour project-wide; two parents retrying at 3 AM exceed it → `email rate limit exceeded`. Configure Resend/Brevo.
-4. **Logs → Auth** filtered by the partner's email: look for `otp_expired`, `429`, `invalid`.
-
-Diagnostic SQL (SQL Editor) — tells exactly what happened to the partner's account:
-```sql
-select email, created_at, confirmation_sent_at, email_confirmed_at, last_sign_in_at
-from auth.users order by created_at;
-
--- Who is in which family (detects the "solo family" lockout)
-select u.email, f.id as family_id, f.invite_code,
-       (select count(*) from public.family_members m where m.family_id = f.id) as members,
-       (select count(*) from public.care_events c where c.family_id = f.id)   as events
-from auth.users u
-left join public.family_members fm on fm.user_id = u.id
-left join public.families f on f.id = fm.family_id
-order by u.email;
-
--- Grants actually applied on the live DB (all must be true)
-select has_table_privilege('authenticated','public.families','select')       fam_sel,
-       has_table_privilege('authenticated','public.family_members','delete') fm_del,
-       has_table_privilege('authenticated','public.babies','insert')         babies_ins,
-       has_table_privilege('authenticated','public.care_events','insert')    ce_ins,
-       has_table_privilege('authenticated','public.care_events','update')    ce_upd;
-```
-If the partner is sitting alone in a solo family, unblock immediately:
-```sql
-delete from public.family_members where user_id = '<partner uid>';
-delete from public.families f where not exists
-  (select 1 from public.family_members m where m.family_id = f.id);  -- cascades
-```
-
-### 0.2 Client hardening — [AuthScreen.tsx](src/features/family/AuthScreen.tsx)
-- Normalise: `const addr = email.trim().toLowerCase()` for both `signInWithOtp` and `verifyOtp`; input `autoCapitalize="none" autoCorrect="off"`.
-- "Use a different email" → also `setCode('')`, `setError(null)`.
-- Map `error.code`: `otp_expired` → "That code expired — request a new one."; message containing `rate limit` → "Too many codes sent. Wait an hour, or configure SMTP." Show the raw message underneath in `text-xs`.
-- Under the code input: "Got a link instead of a code? Tap it — it signs you in too."
-- 60 s resend cooldown on "Email me a code" (Supabase's per-email cooldown otherwise returns a confusing error).
-
-### 0.3 Client: stop masking errors — [FamilyScreen.tsx](src/features/family/FamilyScreen.tsx)
-- Mount effect (`:28`): destructure `{ data, error }`; on error show `Could not check your family: ${error.message}` and do **not** render "Start a new family" (a 42501 from missing grants currently looks like "no family" and every tap creates another solo family via the SECURITY DEFINER RPC).
-- `join` (`:88`): `error.code === 'P0002'` → "did not match"; anything else → `error.message`.
-- `:83` guard → `length !== 8`; input `maxLength={8}`.
-- [SettingsScreen.tsx:148](src/features/settings/SettingsScreen.tsx#L148): add `session.user.email` to the status line so two-phone debugging is possible.
-
-**verify:** `pnpm build && pnpm lint`; wrong code shows "did not match", network off shows the fetch error; partner receives a 6-digit code on a fresh email; `auth.users` shows `email_confirmed_at` set after verify.
+Findings that shape the plan:
+- The only physical-direction utility in the codebase is `text-left` at `HistoryScreen.tsx:136`. `text-left`/`text-right` in `TimerOverlay.tsx:83` and `SideButton.tsx` are **colour tokens** (`--color-left`), not alignment — do not touch.
+- Under `dir="rtl"` the LEFT/RIGHT breast buttons (`HomeScreen.tsx:45`) and the `−/+` stepper rows would mirror. Breast side is physical, so those rows must be pinned LTR.
+- `date-fns` is a dependency but never imported; no `Intl` usage. Only two locale-sensitive calls: `HistoryScreen.tsx:48` (`toLocaleDateString(undefined…)`) and `format.ts:39` (`toLocaleTimeString`).
+- e2e (`tests/e2e/app.spec.ts`) selects by English text; two selectors (`/Diaper/`, `/Bottle/` with `.first()` at L155/L194) will match the new tab buttons and must be scoped to `li`.
 
 ---
 
-## Phase 1 — Family membership hardening
+## Part A — Categorized History (ship first; independent of i18n)
 
-### 1.1 SQL — new `supabase/migrations/0002_family_membership.sql`
-- `create_family`: after the `uid` check, `if exists (select 1 from family_members where user_id = uid) then raise exception 'already in a family' using errcode = 'P0003'`.
-- `join_family`: same guard but allow re-joining the **same** family (`and family_id <> fid`).
-- New `leave_family() returns boolean` (SECURITY DEFINER, `set search_path = public`): delete caller's `family_members` row; if the family is now empty, delete the family (cascades babies/events, which frees the event ids so `adopt` can re-push them into the real family — re-pushing the same ids into a different family would otherwise be RLS-rejected as an update on the old family's rows). `grant execute on function public.leave_family() to authenticated`.
-- Re-apply the `0001` grants block verbatim at the end (idempotent; makes a single run produce a correct live DB).
-- RLS unchanged. `active_sessions` untouched (unused by the client).
-
-**verify:** as a member `select create_family()` → `P0003`; `leave_family()` → `true`; `join_family('<code>')` works again; membership query shows 2 members in 1 family.
-
-### 1.2 Client — [FamilyScreen.tsx](src/features/family/FamilyScreen.tsx)
-- Flip hierarchy: code input + **Join with code** (`variant="primary"`) first; divider; **Start a new family** (`variant="secondary"`) below with copy "Only one of you should do this."
-- Existing view (`:96-108`): select `id, invite_code, babies(id,name,born_at), family_members(count)`; show "N members"; add a two-tap **Leave family** (`variant="danger"`, same confirm pattern as [EditEventSheet.tsx:91-111](src/features/history/EditEventSheet.tsx#L91-L111)). On `leave_family` → `true`: keep local events (the next `adopt` carries them into the real family); `false`: `clearLocalData(); clearSessionIds(); location.href='/'` (the family still has members; its rows stay there). Then `setExisting(null)`.
-- Errors: `P0002` → did not match; `P0003` → "This account is already in a family. Leave it first."; else raw message. `:90` → require `row.family_id && row.baby_id`.
-
-### 1.3 Tests
-- [rls_test.sql](supabase/rls_test.sql): convert the printed counts into assertions (`do $$ … raise exception … $$`) — `b_sees_events = 1`, stranger sees 0, LWW values, tombstone. Add: B `create_family` → `P0003`; B `leave_family` → false; B rejoin; A leaves last → true, families = 0. Replace the blanket `app_user` grants with `create role authenticated nologin` so the migration's own grants are what the test exercises.
-
-**verify:** `psql -v ON_ERROR_STOP=1 -f 0001_init.sql -f 0002_family_membership.sql -f rls_test.sql` exits 0.
-
----
-
-## Phase 2 — Multi-child data layer (no sync-engine changes)
-
-### 2.1 Types + Dexie — [types.ts](src/lib/db/types.ts), [db.ts](src/lib/db/db.ts)
+### A.1 Dexie v3 — `src/lib/db/db.ts`
 ```ts
-export interface Baby { id: string; familyId: string; name: string; bornAt: string | null }
-```
-```ts
-this.version(2).stores({
-  events: '&id, familyId, kind, updatedAt, [familyId+startedAt], [babyId+startedAt]',
+this.version(3).stores({
+  events: '&id, familyId, kind, updatedAt, [familyId+startedAt], [babyId+startedAt], [familyId+kind+startedAt], [babyId+kind+startedAt]',
   outbox: '++seq, eventId, dead',
-  meta:   '&key',
+  meta: '&key',
   babies: '&id, familyId',
 })
 ```
-`[babyId+startedAt]` (not `[familyId+babyId+…]`): baby ids are UUIDs, so the family prefix adds nothing, and the key shape mirrors the existing `[familyId+startedAt]` `between()` queries. No `.upgrade()` — rows already carry `babyId`. `clearLocalData()` adds `db.babies`.
-Risk: an old tab on v1 gets its connection closed on `versionchange`; SW is `registerType: 'prompt'`, so this coincides with the user's own Reload.
+No `.upgrade()` — rows already carry `kind`. Keeps every tab a covering range scan (a "Pumping" tab in a 3k-row family otherwise cursors through ~90% non-matches to fill 200). Same version-bump caveat as v2 (old tab closes on `versionchange`; coincides with the SW "Reload" prompt).
 
-### 2.2 Session — [session.ts](src/lib/session.ts)
-`babyId` becomes the **selected** baby (same `tt.babyId` key, same bootstrap — pre-sign-in behaviour identical). Add `selectBaby(id)`. No babies array in zustand; the Dexie table is the single source:
+### A.2 Query helper — new `src/features/history/historyQuery.ts` (+ test)
+```ts
+export type HistoryCategory = 'all' | 'feeding' | 'pump' | 'diaper'
+export const CATEGORY_KINDS: Record<Exclude<HistoryCategory,'all'>, EventKind[]> =
+  { feeding: ['nursing', 'bottle'], pump: ['pump'], diaper: ['diaper'] }
 
-New `src/lib/db/babies.ts`:
-- `useBabies(familyId)` — `useLiveQuery(() => db.babies.where('familyId').equals(familyId).toArray())`.
-- `mirrorBabies(familyId, rows)` — rw tx: delete family's rows, `bulkPut`; if the selected id is no longer present, `selectBaby(rows[0].id)`.
+export async function recentEvents(
+  scope: { familyId: string } | { babyId: string },
+  category: HistoryCategory,
+  limit = 200,
+): Promise<CareEvent[]>
+```
+- `'all'` → the two existing `[familyId+startedAt]` / `[babyId+startedAt]` branches, moved here verbatim.
+- One kind → `[scope+kind+startedAt]` `.between([id, kind, minKey], [id, kind, maxKey]).reverse().filter(deletedAt === null).limit(limit)`.
+- `'feeding'` → the one-kind query **sequentially** for `nursing` then `bottle` (sequential `await` is the pattern `useLastFeed` already proves works inside `useLiveQuery`), concat, sort `startedAt` desc, `slice(0, limit)`. ≤400 rows in memory, bounded.
 
-### 2.3 Babies fetch — new `src/lib/sync/babies.ts`
-- `pullBabies(familyId)`: `from('babies').select('id, family_id, name, born_at').eq('family_id', …)` → camel-case inline → `mirrorBabies`. Called from [SyncProvider.tsx:36-39](src/lib/sync/SyncProvider.tsx#L36-L39) `sync()` next to `pullSince` (boot / online / visible). Not cursor-driven; no realtime — a partner's rename shows on next foreground.
-- `addBaby(familyId, name, bornAt)` / `renameBaby(id, patch)`: direct `supabase.from('babies')` insert/update then local put/update. RLS `babies_all_member` + existing grants already permit this — **no new SQL**. Online-only by design (adding the second twin needs one moment of connectivity; all logging stays fully offline).
+Colocated like `nursing/timerMachine.ts`; `historyQuery.test.ts` uses fake-indexeddb exactly as `src/lib/db/babies.test.ts` does.
 
-### 2.4 Adoption moves into the repo — [repo.ts](src/lib/db/repo.ts)
-`adoptOrphans(localFamilyId, familyId, babyId)` = body of `FamilyScreen.adopt` (`:48-63`) + `notify()`. Testable with fake-indexeddb, and honours "repo is the only module that writes events". `FamilyScreen.adopt(familyId, babies)` → `adoptOrphans(local, familyId, babies[0].id); mirrorBabies(...); setFamily(familyId, babies[0].id)`. After `join_family`, call `pullBabies(family_id)` rather than changing the RPC's return shape.
+### A.3 Screen — `src/features/history/HistoryScreen.tsx`
+- Second state `const [category, setCategory] = useState<HistoryCategory>('all')`, independent of the existing child `filter`. Resets to All on each visit (no persistence; cheapest and least surprising).
+- `useLiveQuery(() => recentEvents(filter === 'all' ? { familyId } : { babyId: filter }, category), [familyId, filter, category])`.
+- Picker container becomes `flex flex-col gap-2 border-b border-border p-3` holding: category `Segmented` (always rendered: All · Feeding · Pumping · Diapers) and, when `twins`, the existing child `Segmented` below it. Reuses `components/ui/Segmented.tsx` unchanged.
+- Empty state is per category (No logs yet. / No feedings yet. / No pumping sessions yet. / No diapers yet.).
+- `text-left` on the row button → `text-start` (the one RTL fix in this file).
 
-### 2.5 Timer captures the child — [timerMachine.ts](src/features/nursing/timerMachine.ts), [timerStore.ts](src/features/nursing/timerStore.ts), [TimerOverlay.tsx](src/features/nursing/TimerOverlay.tsx)
-- `TimerState.babyId: string | null`; `START` gains `babyId`; reducer copies it (other transitions spread state).
-- `timerStore.start(side)` passes `useSession.getState().babyId` (session.ts does not import the timer store → no cycle). `hydrate()`: `babyId: saved.babyId ?? null` for a `tt.timer` written by the old build.
-- `TimerOverlay` save (`:43`): `babyId: state.babyId ?? babyId`.
+### A.4 Tests
+- `historyQuery.test.ts`: feeding merges nursing+bottle newest-first and respects `limit` across the merge; pump/diaper exclude other kinds; tombstones excluded; `{ babyId }` scope + category returns only that child.
+- `app.spec.ts`: scope the two row-click selectors to `page.locator('li').getByRole('button', …)`; add "history tabs split kinds": log a diaper and a bottle → History → Feeding shows one Bottle row and no Diaper → Diapers shows the inverse → Pumping shows the empty state.
 
-**verify:** `pnpm test`; DevTools shows `babies` store + new index; start feed → switch child is disabled → save → row's `babyId` is the child selected at START.
-
----
-
-## Phase 3 — Multi-child UI
-
-### 3.1 Promote `Segmented` + new `BabyChip`
-- Move `Segmented` from [SettingsScreen.tsx:26-53](src/features/settings/SettingsScreen.tsx#L26-L53) to `src/components/ui/Segmented.tsx` unchanged; Settings imports it (Bottle's inline copy at [BottleScreen.tsx:65-70](src/features/bottle/BottleScreen.tsx#L65-L70) may adopt it in the same commit).
-- `src/features/status/BabyChip.tsx`: `useBabies(familyId)`; `if (babies.length < 2) return null` → single-child header identical to today. Pill: `h-12 rounded-full border border-border px-4 text-sm font-semibold text-text active:opacity-70 disabled:opacity-40` (48 px = header buttons; pill = Toast precedent; text is the signal — no new hue, night-safe). Two children: tap → `tap()`, `selectBaby(other)`, toast "Now logging for Noa". 3+: `Sheet` with one `Button` per child. `disabled` while `timer.status !== 'idle'`. Mounted in [StatusBanner.tsx:57-61](src/features/status/StatusBanner.tsx#L57-L61) between the text block and the theme toggle.
-
-### 3.2 Per-child status + nudge
-[useLastFeed.ts](src/features/status/useLastFeed.ts) → `useLastFeed(babyId)` on `[babyId+startedAt]`; callers in `StatusBanner.tsx:20` and `HomeScreen.tsx:16` pass `useSession(s => s.babyId)`. The "suggested" side becomes per child for free. `?start=left|right` shortcuts need no change — `start()` captures the selected child.
-
-### 3.3 Timer overlay
-[TimerOverlay.tsx:75-83](src/features/nursing/TimerOverlay.tsx#L75-L83): one `text-sm text-text-muted` line with the child's name (from `state.babyId`), only when `babies.length > 1`.
-
-### 3.4 History — [HistoryScreen.tsx](src/features/history/HistoryScreen.tsx)
-- `filter: 'all' | babyId`; `Segmented` (All + one per child) above the list only when `babies.length > 1`. `'all'` → existing `[familyId+startedAt]`; else `[babyId+startedAt]`.
-- In "All" with >1 children, prefix titles: `Maya · Nursing · Left`.
-- [EditEventSheet.tsx](src/features/history/EditEventSheet.tsx): "Child" `Segmented` → `updateEvent(id, { babyId })` (patch type already allows it; LWW + outbox unchanged). Fixes the most common twin mistake: logged on the wrong child.
-
-### 3.5 Settings "Children" — [SettingsScreen.tsx](src/features/settings/SettingsScreen.tsx)
-`<Row label="Children">` when `session && babies.length > 0`: per child a name input (save on blur → `renameBaby`) and `type="date"` born-at (same input classes as `EditEventSheet.tsx:68-73`). **Add a child** (`variant="secondary" h-12 w-full`) → `addBaby(familyId, 'Baby 2', null)`; if `!navigator.onLine` → toast "Connect to add a child." No delete in v1 (would orphan events).
-
-**verify:** create family → no chip → Settings → Add a child → chip appears; tap cycles with toast; log a diaper for each → History "All" shows both names, per-child filter splits them; StatusBanner "last fed" follows the chip; partner sees both children after foregrounding; e2e suite unchanged and green.
+**verify:** `pnpm test`; DevTools → IndexedDB shows v3 with both new indexes; `pnpm test:e2e` green.
 
 ---
 
-## Phase 4 — Tests + end-to-end verification
+## Part B — Language (English / Hebrew) + RTL
 
-- [timerMachine.test.ts](src/features/nursing/timerMachine.test.ts): START stores `babyId`; second START while live keeps the first; DISCARD/SAVED reset to null; legacy `tt.timer` without `babyId` hydrates to null.
-- New `src/lib/db/babies.test.ts` (fake-indexeddb, same setup as [sync.test.ts](src/lib/sync/sync.test.ts)): `mirrorBabies` replaces rows and re-selects when the selected id vanished; `[babyId+startedAt]` returns only that child's rows; `adoptOrphans` re-points only local-family rows and queues one outbox entry each.
-- [app.spec.ts](tests/e2e/app.spec.ts): "twins: chip switches the child that receives a log" — seed two `babies` rows via `page.evaluate`, reload, expect chip, tap, log diaper, assert `events[0].babyId`; assert chip `disabled` while a feed runs. No Supabase needed.
-- `rls_test.sql` as in 1.3.
-- Manual two-phone checklist: (1) fresh installs, one feed each before sign-in; (2) A signs in, creates family, adds child 2; (3) B signs in with a **new** email — receives a 6-digit code — joins; B's pre-join feed appears on A under child 1; (4) on a third account: create solo family → Leave → Join; (5) A renames child 2 → B sees it after foregrounding; (6) B airplane mode: switch child, nurse, save, bottle → reconnect → A sees all with correct children; (7) A edits an event's child → B sees it move.
+### B.1 Infrastructure — new `src/lib/i18n/`
+- `en.ts`: `export const en = { 'tabs.nurse': 'Nurse', 'sync.waiting': '{n} waiting to sync', … }` (flat, screen-prefixed keys). `export type Key = keyof typeof en`.
+- `he.ts`: `export const he: Record<Key, string>` — a missing key is a **type error**, so `pnpm build` is the completeness check.
+- `index.ts`, modelled line-for-line on `src/lib/theme/useTheme.ts`:
+  ```ts
+  export type Lang = 'en' | 'he'
+  export function getLang(): Lang            // module cache, seeded from StorageKeys.lang
+  export function setLang(l: Lang): void     // writeLocal → apply() → emit()
+  export function t(key: Key, vars?: Record<string, string | number>): string  // '{n}' replace
+  export function useT(): typeof t           // useSyncExternalStore(subscribe, getLang) then returns t
+  export function localeOf(l = getLang()): string | undefined  // en → undefined (today's behaviour), he → 'he-IL'
+  ```
+  `apply()` sets `document.documentElement.lang` and `dir` (`he` → `rtl`). `subscribe` also listens to the cross-tab `storage` event like the theme does. Default `'en'`; no OS auto-detect.
+- `storage.ts`: add `lang: 'tt.lang'` to `StorageKeys`.
+- `index.html`: extend the existing pre-paint script to read `tt.lang` and set `lang`/`dir` on `<html>` before first paint (prevents an LTR→RTL layout jump on launch, same reasoning as the theme flash).
+- Plurals/interpolation stay primitive on purpose: `{n}` substitution only. English "log(s)" forms stay as they are; Hebrew uses forms that read correctly for any n.
+
+### B.2 Non-component formatters (read `getLang()`/`t()` directly, mirroring how `formatVolume` reads `getUnit()`)
+- `src/lib/time/format.ts`: `formatDuration` → keys `time.s / time.m / time.h / time.hm` (`'{n}m'` vs `'{n} דק׳'`); `formatAgo` → `time.justNow`, `time.ago` (`'{d} ago'` vs `'לפני {d}'` — word order flips, which is why it is a template, not a suffix). `formatClock` passes `localeOf()`. `formatTimer` is numeric, untouched.
+- `src/lib/units/volume.ts`: `formatVolume` → `unit.ml` / `unit.oz` templates (`'{n} ml'` vs `'{n} מ״ל'`).
+- `HistoryScreen.dayLabel`: `Today`/`Yesterday` via `t`, `toLocaleDateString(localeOf(), …)`.
+
+### B.3 Components — mechanical replacement, one `const t = useT()` per component
+Files (from the inventory): `app/TabBar.tsx`, `components/ui/Sheet.tsx` (Close), `components/ui/NumberStepper.tsx` (`stepper.decrease` = `'Decrease {label}'`), `features/status/StatusBanner.tsx`, `features/status/BabyChip.tsx`, `features/nursing/{HomeScreen,SideButton,TimerOverlay}.tsx`, `features/bottle/BottleScreen.tsx`, `features/pump/PumpScreen.tsx`, `features/diaper/DiaperScreen.tsx`, `features/history/{HistoryScreen,EditEventSheet}.tsx`, `features/family/{AuthScreen,FamilyScreen}.tsx`, `features/settings/SettingsScreen.tsx`.
+- `TabBar.TABS` keeps `label` as a `Key` and resolves it in render.
+- `SideButton` label `LEFT`/`RIGHT` → `side.left`/`side.right` (`'שמאל'`/`'ימין'`); the `tracking-tight` uppercase styling is harmless on Hebrew.
+- `TimerOverlay` L/R line → one template `timer.sides` = `'L {l} · R {r}'` / `'שמאל {l} · ימין {r}'`.
+- Default baby names sent to the server (`FamilyScreen` `'Baby'`, `SettingsScreen` `` `Baby ${n}` ``) are translated too (they are user-visible data the parent then renames).
+- Out of scope, stated: raw GoTrue/Postgres error passthroughs (`AuthScreen`, `FamilyScreen`) stay as the server sends them; PWA manifest `name`/shortcuts and `<title>` are static build-time strings and stay English.
+
+### B.4 Settings toggle — `src/features/settings/SettingsScreen.tsx`
+New first `<Row label={t('settings.language')}>` with `Segmented<Lang>` options `English` / `עברית` (each label in its own language, never translated, so the row is findable from either UI). `onChange={setLang}`. Placed above Theme so a Hebrew speaker finds it while the UI is still English.
+
+### B.5 RTL
+- `dir="rtl"` on `<html>` does the layout work; Tailwind v4 flex/grid mirror automatically, and every horizontal utility in the codebase is symmetric (`px-*`, `inset-x-0`, `gap-*`).
+- `HistoryScreen.tsx:136` `text-left` → `text-start` (done in Part A).
+- Pin physical controls LTR with `dir="ltr"`: the two-button row in `HomeScreen.tsx:45` (left breast stays on the physical left) and the `−/value/+` row inside `NumberStepper`. Everything else (tab bar order, header chip/buttons, sheets) mirrors, which is the native RTL convention.
+- Do **not** convert `text-left`/`text-right` in `TimerOverlay.tsx:83` — colour tokens.
+- Fonts: the body stack already falls back to system Hebrew faces (`ui-rounded` → SF Hebrew on iOS, Segoe UI/Roboto elsewhere); no CSS change.
+- Rule going forward (one comment in `index.css` next to the night variant): logical utilities only (`ps-/pe-/ms-/me-/start-/end-/text-start`).
+
+### B.6 Tests
+- `src/lib/i18n/i18n.test.ts`: every `{placeholder}` in an `en` value appears in the `he` value; no empty Hebrew string; `t` interpolates; `setLang('he')` sets `dir="rtl"`/`lang="he"` on `documentElement` (jsdom), `setLang('en')` restores.
+- `app.spec.ts`: "switching to Hebrew flips direction and persists": Settings → `עברית` → `expect(page.locator('html')).toHaveAttribute('dir', 'rtl')` → tab bar shows `היסטוריה` → reload → still RTL (`tt.lang` + pre-paint script).
+- Existing e2e stays English-default and unchanged except A.4.
+
+**verify:** `pnpm build` (Hebrew completeness via types) · `pnpm lint` · `pnpm test` · `pnpm test:e2e`; manual: switch to Hebrew → no layout flash on reload, LEFT/RIGHT buttons stay on their physical sides, timer "ago" reads "לפני 14 דק׳", History day headers in Hebrew, night mode unaffected.
 
 ---
 
-## Invariants preserved (explicit)
-- events+outbox single transaction — unchanged (`writeAndQueue`, `adoptOrphans`). Babies are mirrored, never queued.
-- Cursor `cursor:<familyId>`, `pullSince`, `applyRemote` LWW, `onConflict: 'id'`, soft deletes — unchanged.
-- Realtime `family_id=eq.` channel — unchanged; both twins ride the same channel.
-- RLS policies — unchanged; only two guards and one RPC added, all SECURITY DEFINER like the existing ones.
+## Part C — Developer credit + feedback form
 
-## Decisions the user can flip later (and the cost)
-1. **Offline "add a child"** — `OutboxItem.table` discriminator + babies branch in `push.ts` + mapper; ~60 lines + tests. Everything else stands.
-2. **Tandem feeding** — `TimerState` keyed per `babyId`, overlay shows two clocks; Phase 2.5's `babyId` on state is the prerequisite either way.
-3. **Keep empty families on leave** — then `adoptOrphans` must mint new event ids before re-push.
+### C.1 Inputs (provided)
+- Business name: **MG Software House** · URL: `https://mg-software-house.vercel.app/` · logo: `public/logo-mark.webp`.
+- Supabase route confirmed over Formspree (the migration/grant/RLS pattern already exists, no third-party key in the bundle, and the row lands next to your other data).
+
+### C.2 Supabase — new `supabase/migrations/0003_feedback.sql`
+```sql
+create table public.feedback (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users (id) on delete set null,
+  email      text check (email is null or length(email) <= 254),
+  message    text not null check (length(message) between 1 and 2000),
+  lang       text,
+  created_at timestamptz not null default now()
+);
+alter table public.feedback enable row level security;
+-- No policies and no table grants on purpose: the API can neither read nor write
+-- the table. The only way in is the RPC below; you read it in the dashboard.
+
+create or replace function public.submit_feedback(message text, email text default null, lang text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if length(trim(message)) = 0 then
+    raise exception 'empty message';
+  end if;
+  insert into public.feedback (user_id, email, message, lang)
+  values (auth.uid(), nullif(trim(email), ''), trim(message), lang);
+end;
+$$;
+grant execute on function public.submit_feedback(text, text, text) to anon, authenticated;
+```
+- Granted to `anon` too: the app works without sign-in, and a feedback form that first demands sign-in gets no feedback. `user_id` is captured when there is one.
+- Spam exposure is bounded by the `check` constraints; if it ever matters, a per-`user_id`/hour cap goes inside the RPC without touching the client.
+- `rls_test.sql`: assert `anon` can `select submit_feedback('hi')`, cannot `select from feedback`, and that `message` of 2001 chars raises.
+- Apply in the SQL editor like the previous migrations; README's "Enabling partner sync" step 2 lists the new file.
+
+### C.3 Credit footer — new `src/features/settings/CreditFooter.tsx`, mounted last in `SettingsScreen`
+- Constants at the top of the file: `BUSINESS_NAME`, `BUSINESS_URL`, `LOGO_SRC = '/logo-mark.webp'` (brand name is not translated).
+- Markup: `<footer className="flex flex-col items-center gap-2 px-4 py-6 text-center text-xs text-text-muted">` → `<a href={BUSINESS_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 active:opacity-70">` with `<img src={LOGO_SRC} alt="" className="h-6 w-auto" />` + `t('credit.developedBy', { name })` → then `t('credit.copyright', { name })` = `'© 2026 {name}. All rights reserved.'` / `'© 2026 {name}. כל הזכויות שמורות.'`.
+- Night mode: text uses the theme tokens already. The logo is the only risk: a dark-on-transparent logo disappears on true black. Preferred fix is an SVG that uses `currentColor` (inherits `text-text-muted`, works in both themes for free). Fallback if the logo must keep brand colours: two files and the existing `night:` variant (`<img … className="night:hidden" />` + `<img … className="hidden night:block" />`).
+- RTL: the row is a flex container, so logo/text mirror with `dir`; `text-center` is direction-neutral. Nothing else needed.
+
+### C.4 Feedback sheet — new `src/features/feedback/FeedbackSheet.tsx`
+- Entry point: `<Row label={t('feedback.title')}>` in `SettingsScreen` (after Install, before the footer) holding one `Button variant="secondary" className="h-12 w-full"` → `t('feedback.open')` ("Send feedback / suggestions"). Rendered only when `isSyncConfigured`; without Supabase there is nowhere to send it.
+- Sheet (reuses `components/ui/Sheet.tsx`, `title={t('feedback.title')}`): `<textarea>` (`min-h-32 rounded-2xl border border-border bg-surface-2 px-4 py-3 text-base text-text`, `maxLength={2000}`), `<input type="email">` prefilled from `useAuthSession().session?.user.email ?? ''` (same input classes as `EditEventSheet.tsx:78`), **Send** (`variant="primary" h-14`, disabled while `message.trim() === ''` or sending), **Close** (`secondary h-12`).
+- Submit: `if (!navigator.onLine) return showToast(t('feedback.offline'))` (same guard as `SettingsScreen.Children`); `await supabase.rpc('submit_feedback', { message, email: email || null, lang: getLang() })`; on `error` → `showToast(error.message)`, keep the sheet open with the text intact; on success → `showToast(t('feedback.thanks'))` ("Thank you for your feedback!"), reset fields, close. No offline queue: feedback is not a care log and does not belong in the outbox.
+- All strings go through the Part B dictionary (`feedback.*`, `credit.*`), so this part lands after B.
+
+### C.5 Tests
+- `rls_test.sql` assertions from C.2.
+- `app.spec.ts`: "feedback button opens the sheet and Send stays disabled on empty text" (no Supabase in e2e; `isSyncConfigured` is false under `pnpm preview` unless `.env` is present, so the test asserts the footer link has `target="_blank"` and `rel` and skips the sheet when the button is absent).
+
+**verify:** apply `0003` → `select submit_feedback('test')` as the app's anon key via the dashboard API tab → row visible in Table Editor with `user_id` null; signed-in submit → `user_id` set and email prefilled; airplane mode → offline toast, text preserved; footer link opens in a new tab; night mode shows the logo.
+
+---
+
+## Decisions I made (flip any before I start)
+1. **Dexie v3 compound `[…+kind+startedAt]` indexes** rather than an in-memory `.filter(kind)` on the existing index. Cost: one schema bump, no data migration. Benefit: every tab stays a bounded range scan, matching the screen's existing stance.
+2. **Breast LEFT/RIGHT and `−/+` steppers stay physical** under RTL; the rest of the UI mirrors.
+3. **Default language English, no OS auto-detect**; one-liner to add later (`navigator.language.startsWith('he')` on first run).
+4. **History tab resets to All** on each visit.
+5. **Hebrew copy is written by me** in `he.ts`; a native read-through of that one file is the last checklist item before merging.
+6. **Feedback goes through a SECURITY DEFINER RPC granted to `anon`**, with no table policies, rather than a direct insert policy or Formspree. Anyone with the app can send feedback; nobody can read it through the API.
+7. **Feedback is online-only**, with the text preserved on failure; it never enters the outbox.
+
+## Commits
+1. `feat(history): category tabs on compound kind indexes` (A.1–A.4)
+2. `feat(i18n): English/Hebrew dictionary, language setting, RTL` (B.1–B.6)
+3. `feat(settings): developer credit footer and feedback form` (C.2–C.5, after you provide the C.1 inputs; placeholders if not)
 
 ## Housekeeping on execution
-- First step of execution: copy this file into the repo as `plan.md` (user requested it live there) and ship phases as separate commits: `0`, `1`, `2`, `3+4`.
-- `.env` contains a stray `db_pass=` and an unused `VITE_SUPABASE_PUBLISHABLE_KEY`; not bundled (no `VITE_` prefix on the password, file gitignored) but worth removing.
+First step: replace the repo's `plan.md` (the already-shipped twins plan) with this file, as was done last time.

@@ -29,6 +29,16 @@ class TinyTrackerDB extends Dexie {
       meta: '&key',
       babies: '&id, familyId',
     })
+    // v3 adds History's category tabs. [scope+kind+startedAt] keeps a
+    // "Pumping" tab a bounded range scan instead of cursoring through every
+    // feed to find the few pumps. Rows already carry `kind`: index only.
+    this.version(3).stores({
+      events:
+        '&id, familyId, kind, updatedAt, [familyId+startedAt], [babyId+startedAt], [familyId+kind+startedAt], [babyId+kind+startedAt]',
+      outbox: '++seq, eventId, dead',
+      meta: '&key',
+      babies: '&id, familyId',
+    })
   }
 }
 
