@@ -11,6 +11,7 @@ export const StorageKeys = {
   timer: 'tt.timer',
   familyId: 'tt.familyId',
   babyId: 'tt.babyId',
+  lang: 'tt.lang',
 } as const
 
 export function readLocal(key: string): string | null {

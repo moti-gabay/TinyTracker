@@ -7,6 +7,7 @@ import { TimerOverlay } from './TimerOverlay'
 import { tap } from '@/lib/haptics'
 import { useLastFeed } from '@/features/status/useLastFeed'
 import { useSession } from '@/lib/session'
+import { useT } from '@/lib/i18n'
 import type { Side } from '@/lib/db/types'
 
 export function HomeScreen() {
@@ -15,6 +16,7 @@ export function HomeScreen() {
   const babyId = useSession((s) => s.babyId)
   const lastFeed = useLastFeed(babyId)
   const [params, setParams] = useSearchParams()
+  const t = useT()
 
   // PWA shortcut: /?start=left begins a feed straight from the home screen.
   const shortcut = params.get('start')
@@ -42,16 +44,17 @@ export function HomeScreen() {
 
   return (
     <>
-      <div className="flex h-full gap-3 p-3">
+      {/* Pinned LTR: the left breast stays on the physical left under RTL. */}
+      <div className="flex h-full gap-3 p-3" dir="ltr">
         <SideButton
           side="left"
           onPress={() => onStart('left')}
-          subtitle={suggested === 'left' ? 'suggested' : undefined}
+          subtitle={suggested === 'left' ? t('home.suggested') : undefined}
         />
         <SideButton
           side="right"
           onPress={() => onStart('right')}
-          subtitle={suggested === 'right' ? 'suggested' : undefined}
+          subtitle={suggested === 'right' ? t('home.suggested') : undefined}
         />
       </div>
       <TimerOverlay />

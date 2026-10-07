@@ -1,4 +1,5 @@
 /** Duration helpers. All inputs are milliseconds unless the name says seconds. */
+import { localeOf, t } from '@/lib/i18n'
 
 const SEC = 1000
 const MIN = 60 * SEC
@@ -18,25 +19,25 @@ export function formatTimer(ms: number): string {
 
 /** `14m`, `1h 42m`, `just now`. For the status banner and history rows. */
 export function formatDuration(ms: number): string {
-  if (ms < MIN) return `${Math.max(0, Math.round(ms / SEC))}s`
+  if (ms < MIN) return t('time.s', { n: Math.max(0, Math.round(ms / SEC)) })
   const h = Math.floor(ms / HOUR)
   const m = Math.round((ms % HOUR) / MIN)
-  if (h === 0) return `${m}m`
+  if (h === 0) return t('time.m', { n: m })
   // 59.6m rounds to 60 -- roll it into the hour rather than printing "1h 60m".
-  if (m === 60) return `${h + 1}h`
-  return m === 0 ? `${h}h` : `${h}h ${m}m`
+  if (m === 60) return t('time.h', { n: h + 1 })
+  return m === 0 ? t('time.h', { n: h }) : t('time.hm', { h, m })
 }
 
 /** `1h 42m ago`. */
 export function formatAgo(sinceMs: number, now = Date.now()): string {
   const delta = now - sinceMs
-  if (delta < 45 * SEC) return 'just now'
-  return `${formatDuration(delta)} ago`
+  if (delta < 45 * SEC) return t('time.justNow')
+  return t('time.ago', { d: formatDuration(delta) })
 }
 
 /** `02:14` local wall-clock, 24h. Night feeds are easier to scan in 24h. */
 export function formatClock(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, {
+  return new Date(ms).toLocaleTimeString(localeOf(), {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,

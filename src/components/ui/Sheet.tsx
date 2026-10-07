@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { useT } from '@/lib/i18n'
 
 /**
  * Bottom sheet. Content sits in the lower half of the screen, inside the
@@ -15,6 +16,7 @@ export function Sheet({
   title?: string
   children: ReactNode
 }) {
+  const t = useT()
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -34,7 +36,7 @@ export function Sheet({
       aria-label={title}
     >
       <button
-        aria-label="Close"
+        aria-label={t('common.close')}
         onClick={onClose}
         className="absolute inset-0 bg-black/60"
       />

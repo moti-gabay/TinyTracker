@@ -32,6 +32,11 @@
           document.documentElement.setAttribute('data-theme', theme)
           var meta = document.querySelector('meta[name="theme-color"]')
           if (meta) meta.setAttribute('content', theme === 'night' ? '#000000' : '#faf7f4')
+          // Same for language: an LTR frame that snaps to RTL after hydration
+          // is the layout equivalent of the white flash.
+          var lang = localStorage.getItem('tt.lang') === 'he' ? 'he' : 'en'
+          document.documentElement.lang = lang
+          document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr'
         } catch (e) {
           /* private mode: fall through to the day default on <html> */
         }

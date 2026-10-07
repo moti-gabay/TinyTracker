@@ -5,6 +5,7 @@ import { useNow } from '@/lib/time/useNow'
 import { formatAgo, formatDuration } from '@/lib/time/format'
 import { formatVolume } from '@/lib/units/volume'
 import { useTheme } from '@/lib/theme/useTheme'
+import { useT } from '@/lib/i18n'
 import { useTimerStore } from '@/features/nursing/timerStore'
 import { elapsedMs, isRunning } from '@/features/nursing/timerMachine'
 import { useLastFeed } from './useLastFeed'
@@ -22,6 +23,7 @@ export function StatusBanner() {
   const lastFeed = useLastFeed(babyId)
   const timer = useTimerStore((s) => s.state)
   const { theme, toggle } = useTheme()
+  const t = useT()
   // 30s is enough for an "ago" readout and costs almost nothing.
   const now = useNow(isRunning(timer.status) ? 1000 : 30_000)
 
@@ -31,22 +33,27 @@ export function StatusBanner() {
   let secondary: string
 
   if (live) {
-    primary = timer.currentSide === 'left' ? 'Left · feeding' : 'Right · feeding'
-    secondary = `${formatDuration(elapsedMs(timer, now))}${
-      timer.status === 'paused' ? ' · paused' : ''
-    }`
+    primary = t('status.live', {
+      side: t(timer.currentSide === 'left' ? 'common.left' : 'common.right'),
+    })
+    const elapsed = formatDuration(elapsedMs(timer, now))
+    secondary =
+      timer.status === 'paused' ? t('status.paused', { elapsed }) : elapsed
   } else if (lastFeed === undefined) {
     primary = ' '
     secondary = ' '
   } else if (lastFeed === null) {
-    primary = 'No feeds yet'
-    secondary = 'Tap a side to start'
+    primary = t('status.noFeeds')
+    secondary = t('status.tapToStart')
   } else if (lastFeed.kind === 'nursing') {
-    primary = `${lastFeed.lastSide === 'left' ? 'Left' : 'Right'} · ${formatAgo(lastFeed.startedAt, now)}`
+    primary = t('status.lastNursing', {
+      side: t(lastFeed.lastSide === 'left' ? 'common.left' : 'common.right'),
+      ago: formatAgo(lastFeed.startedAt, now),
+    })
     const duration = (lastFeed.leftSeconds ?? 0) + (lastFeed.rightSeconds ?? 0)
-    secondary = `Fed for ${formatDuration(duration * 1000)}`
+    secondary = t('status.fedFor', { d: formatDuration(duration * 1000) })
   } else {
-    primary = `Bottle · ${formatAgo(lastFeed.startedAt, now)}`
+    primary = t('status.lastBottle', { ago: formatAgo(lastFeed.startedAt, now) })
     secondary = formatVolume(lastFeed.amountMl ?? 0)
   }
 
@@ -64,7 +71,7 @@ export function StatusBanner() {
 
       <button
         onClick={toggle}
-        aria-label={theme === 'night' ? 'Switch to day mode' : 'Switch to night mode'}
+        aria-label={t(theme === 'night' ? 'status.toDay' : 'status.toNight')}
         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-text active:opacity-70"
       >
         <Icon name={theme === 'night' ? 'moon' : 'sun'} size={22} />
@@ -72,7 +79,7 @@ export function StatusBanner() {
 
       <Link
         to="/settings"
-        aria-label="Settings"
+        aria-label={t('status.settings')}
         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-text active:opacity-70"
       >
         <Icon name="gear" size={22} />

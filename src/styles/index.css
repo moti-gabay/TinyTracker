@@ -1,6 +1,9 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+/* Hebrew sets dir="rtl" on <html>. Use logical utilities only (ps-/pe-/ms-/
+   me-/start-/end-/text-start); physical left/right would not mirror. */
+
 /* Night variant: `night:text-[--text-muted]` etc. */
 @custom-variant night (&:where([data-theme='night'] *));
 

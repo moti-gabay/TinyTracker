@@ -119,6 +119,30 @@ test('theme toggles, persists, and repaints the status bar', async ({ page }) =>
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'night')
 })
 
+test('switching to Hebrew flips direction and persists across reload', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
+
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'עברית' }).click()
+
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+  await expect(page.locator('html')).toHaveAttribute('lang', 'he')
+  await expect(page.getByRole('link', { name: 'היסטוריה' })).toBeVisible()
+
+  await page.reload()
+  // The inline bootstrap sets dir before first paint, like the theme.
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+  await expect(page.getByText('עדיין אין האכלות')).toBeVisible()
+
+  // The breast buttons keep their physical sides under RTL.
+  await page.getByRole('link', { name: 'הנקה' }).click()
+  const left = page.getByRole('button', { name: /^שמאל/ })
+  const right = page.getByRole('button', { name: /^ימין/ })
+  const [l, r] = await Promise.all([left.boundingBox(), right.boundingBox()])
+  expect(l!.x).toBeLessThan(r!.x)
+})
+
 test('logs bottle, pump and diaper entries', async ({ page }) => {
   await page.goto('/')
 

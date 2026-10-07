@@ -6,6 +6,7 @@ import { useSession, clearSessionIds } from '@/lib/session'
 import { clearLocalData } from '@/lib/db/db'
 import { adoptOrphans } from '@/lib/db/repo'
 import { pullBabies } from '@/lib/sync/babies'
+import { useT } from '@/lib/i18n'
 
 type Existing = { id: string; code: string; members: number }
 
@@ -28,6 +29,7 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   const setFamily = useSession((s) => s.setFamily)
   const localFamilyId = useSession((s) => s.familyId)
   const showToast = useToast((s) => s.show)
+  const t = useT()
 
   // If this account is already in a family, show its code rather than
   // offering to create a second one.
@@ -43,7 +45,7 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
       // Swallowing it looks exactly like "no family yet", and then every tap
       // of "Start a new family" mints another one -- create_family is
       // SECURITY DEFINER, so it succeeds even when this select cannot.
-      if (error) return setError(`Could not check your family: ${error.message}`)
+      if (error) return setError(t('family.checkFailed', { msg: error.message }))
       setChecked(true)
       if (data) {
         setExisting({
@@ -72,23 +74,25 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
 
   const explain = (e: { code?: string; message: string }) =>
     e.code === 'P0002'
-      ? 'That code did not match a family.'
+      ? t('family.noMatch')
       : e.code === 'P0003'
-        ? 'This account is already in a family. Leave it first.'
+        ? t('family.alreadyIn')
         : e.message
 
   const create = async () => {
     if (!supabase) return
     setBusy(true)
     setError(null)
-    const { data, error } = await supabase.rpc('create_family', { baby_name: 'Baby' })
+    const { data, error } = await supabase.rpc('create_family', {
+      baby_name: t('family.defaultBaby'),
+    })
     setBusy(false)
     if (error) return setError(explain(error))
     const row = Array.isArray(data) ? data[0] : data
-    if (!row) return setError('Could not create a family.')
+    if (!row) return setError(t('family.createFailed'))
     await adopt(row.family_id, row.baby_id)
     setExisting({ id: row.family_id, code: row.invite_code, members: 1 })
-    showToast('Family created')
+    showToast(t('family.created'))
     onDone?.()
   }
 
@@ -103,9 +107,9 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
     if (error) return setError(explain(error))
     const row = Array.isArray(data) ? data[0] : data
     if (!row?.family_id || !row?.baby_id)
-      return setError('That code did not match a family.')
+      return setError(t('family.noMatch'))
     await adopt(row.family_id, row.baby_id)
-    showToast('Joined family')
+    showToast(t('family.joined'))
     onDone?.()
   }
 
@@ -125,7 +129,7 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
     if (data === true) {
       setExisting(null)
       setConfirmLeave(false)
-      showToast('Left the family')
+      showToast(t('family.left'))
       return
     }
     await clearLocalData()
@@ -136,17 +140,15 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   if (existing) {
     return (
       <div className="p-6">
-        <h2 className="text-sm font-semibold text-text">Your family code</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          Your partner enters this on their phone to share your logs.
-        </p>
+        <h2 className="text-sm font-semibold text-text">{t('family.yourCode')}</h2>
+        <p className="mt-1 text-sm text-text-muted">{t('family.codeHint')}</p>
         <div className="mt-4 rounded-2xl border border-border bg-surface-2 py-5 text-center text-3xl font-bold tracking-[0.2em] text-text">
           {existing.code}
         </div>
         <p className="mt-2 text-xs text-text-muted">
           {existing.members === 1
-            ? 'Just you so far.'
-            : `${existing.members} people are sharing these logs.`}
+            ? t('family.justYou')
+            : t('family.members', { n: existing.members })}
         </p>
 
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -157,7 +159,7 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
           disabled={busy}
           onClick={confirmLeave ? leave : () => setConfirmLeave(true)}
         >
-          {confirmLeave ? 'Tap again to leave this family' : 'Leave family'}
+          {t(confirmLeave ? 'family.confirmLeave' : 'family.leave')}
         </Button>
       </div>
     )
@@ -166,10 +168,8 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
   return (
     <div className="flex h-full flex-col justify-center gap-4 p-6">
       <div>
-        <h1 className="text-2xl font-bold text-text">Set up sharing</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          Enter the code from your partner to share their logs.
-        </p>
+        <h1 className="text-2xl font-bold text-text">{t('family.setup')}</h1>
+        <p className="mt-1 text-sm text-text-muted">{t('family.setupHint')}</p>
       </div>
 
       <input
@@ -177,29 +177,27 @@ export function FamilyScreen({ onDone }: { onDone?: () => void }) {
         inputMode="text"
         autoCapitalize="characters"
         maxLength={8}
-        placeholder="PARTNER CODE"
+        placeholder={t('family.codePlaceholder')}
         value={code}
         onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
         className="min-h-14 rounded-2xl border border-border bg-surface-2 px-4 text-center text-2xl tracking-[0.2em] text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-muted"
       />
       <Button variant="primary" className="h-14" disabled={busy} onClick={join}>
-        Join with code
+        {t('family.join')}
       </Button>
 
       {checked && (
         <>
           <div className="flex items-center gap-3 text-xs text-text-muted">
             <span className="h-px flex-1 bg-border" />
-            or
+            {t('common.or')}
             <span className="h-px flex-1 bg-border" />
           </div>
 
           <Button variant="secondary" className="h-14" disabled={busy} onClick={create}>
-            Start a new family
+            {t('family.start')}
           </Button>
-          <p className="-mt-2 text-xs text-text-muted">
-            Only one of you does this. The other joins with the code it gives you.
-          </p>
+          <p className="-mt-2 text-xs text-text-muted">{t('family.startHint')}</p>
         </>
       )}
 

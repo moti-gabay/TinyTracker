@@ -1,4 +1,5 @@
 import { cn } from '@/components/ui/cn'
+import { useT } from '@/lib/i18n'
 import type { Side } from '@/lib/db/types'
 
 /**
@@ -18,6 +19,7 @@ export function SideButton({
   className?: string
 }) {
   const isLeft = side === 'left'
+  const t = useT()
   return (
     <button
       onClick={onPress}
@@ -36,7 +38,7 @@ export function SideButton({
       )}
     >
       <span className="text-4xl font-extrabold tracking-tight">
-        {isLeft ? 'LEFT' : 'RIGHT'}
+        {t(isLeft ? 'side.left' : 'side.right')}
       </span>
       {subtitle && <span className="text-sm opacity-80">{subtitle}</span>}
     </button>

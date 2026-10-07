@@ -5,22 +5,24 @@ import { Segmented } from '@/components/ui/Segmented'
 import { useSession } from '@/lib/session'
 import { formatClock, formatDuration } from '@/lib/time/format'
 import { formatVolume } from '@/lib/units/volume'
+import { localeOf, t, useT } from '@/lib/i18n'
+import type { Key } from '@/lib/i18n/en'
 import { EditEventSheet } from './EditEventSheet'
 import { recentEvents, type HistoryCategory } from './historyQuery'
 import type { CareEvent } from '@/lib/db/types'
 
-const CATEGORIES: { value: HistoryCategory; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'feeding', label: 'Feeding' },
-  { value: 'pump', label: 'Pumping' },
-  { value: 'diaper', label: 'Diapers' },
+const CATEGORIES: { value: HistoryCategory; label: Key }[] = [
+  { value: 'all', label: 'history.tab.all' },
+  { value: 'feeding', label: 'history.tab.feeding' },
+  { value: 'pump', label: 'history.tab.pump' },
+  { value: 'diaper', label: 'history.tab.diaper' },
 ]
 
-const EMPTY: Record<HistoryCategory, string> = {
-  all: 'No logs yet.',
-  feeding: 'No feedings yet.',
-  pump: 'No pumping sessions yet.',
-  diaper: 'No diapers yet.',
+const EMPTY: Record<HistoryCategory, Key> = {
+  all: 'history.empty.all',
+  feeding: 'history.empty.feeding',
+  pump: 'history.empty.pump',
+  diaper: 'history.empty.diaper',
 }
 
 function describe(e: CareEvent): { title: string; detail: string } {
@@ -28,24 +30,36 @@ function describe(e: CareEvent): { title: string; detail: string } {
     case 'nursing': {
       const total = (e.leftSeconds ?? 0) + (e.rightSeconds ?? 0)
       return {
-        title: `Nursing · ${e.lastSide === 'left' ? 'Left' : 'Right'}`,
-        detail: `${formatDuration(total * 1000)} (L ${formatDuration((e.leftSeconds ?? 0) * 1000)} · R ${formatDuration((e.rightSeconds ?? 0) * 1000)})`,
+        title: t('history.nursing', {
+          side: t(e.lastSide === 'left' ? 'common.left' : 'common.right'),
+        }),
+        detail: t('history.lrDetail', {
+          total: formatDuration(total * 1000),
+          l: formatDuration((e.leftSeconds ?? 0) * 1000),
+          r: formatDuration((e.rightSeconds ?? 0) * 1000),
+        }),
       }
     }
     case 'bottle':
       return {
-        title: 'Bottle',
-        detail: `${formatVolume(e.amountMl ?? 0)}${e.bottleContent === 'formula' ? ' · formula' : e.bottleContent === 'mixed' ? ' · mixed' : ''}`,
+        title: t('history.bottle'),
+        detail: `${formatVolume(e.amountMl ?? 0)}${e.bottleContent === 'formula' ? t('history.bottleFormula') : e.bottleContent === 'mixed' ? t('history.bottleMixed') : ''}`,
       }
     case 'pump':
       return {
-        title: 'Pumping',
-        detail: `${formatVolume((e.leftMl ?? 0) + (e.rightMl ?? 0))} (L ${formatVolume(e.leftMl ?? 0)} · R ${formatVolume(e.rightMl ?? 0)})`,
+        title: t('history.pumping'),
+        detail: t('history.lrDetail', {
+          total: formatVolume((e.leftMl ?? 0) + (e.rightMl ?? 0)),
+          l: formatVolume(e.leftMl ?? 0),
+          r: formatVolume(e.rightMl ?? 0),
+        }),
       }
     case 'diaper':
       return {
-        title: 'Diaper',
-        detail: e.diaperType === 'both' ? 'Wet + dirty' : e.diaperType === 'wet' ? 'Wet' : 'Dirty',
+        title: t('history.diaper'),
+        detail: t(
+          e.diaperType === 'both' ? 'diaper.wetDirty' : e.diaperType === 'wet' ? 'diaper.wet' : 'diaper.dirty',
+        ),
       }
   }
 }
@@ -56,9 +70,9 @@ function dayLabel(ms: number): string {
   const yday = new Date(today)
   yday.setDate(today.getDate() - 1)
   const same = (a: Date, b: Date) => a.toDateString() === b.toDateString()
-  if (same(d, today)) return 'Today'
-  if (same(d, yday)) return 'Yesterday'
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  if (same(d, today)) return t('history.today')
+  if (same(d, yday)) return t('history.yesterday')
+  return d.toLocaleDateString(localeOf(), { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 export function HistoryScreen() {
@@ -67,6 +81,7 @@ export function HistoryScreen() {
   const [selected, setSelected] = useState<CareEvent | null>(null)
   const [filter, setFilter] = useState('all')
   const [category, setCategory] = useState<HistoryCategory>('all')
+  const tt = useT()
 
   const twins = babies.length > 1
   // 'all' keeps the family index; a child uses the per-baby one. Every
@@ -78,13 +93,17 @@ export function HistoryScreen() {
 
   const picker = (
     <div className="flex flex-col gap-2 border-b border-border p-3">
-      <Segmented value={category} onChange={setCategory} options={CATEGORIES} />
+      <Segmented
+        value={category}
+        onChange={setCategory}
+        options={CATEGORIES.map((c) => ({ value: c.value, label: tt(c.label) }))}
+      />
       {twins && (
         <Segmented
           value={filter}
           onChange={setFilter}
           options={[
-            { value: 'all', label: 'All' },
+            { value: 'all', label: tt('history.tab.all') },
             ...babies.map((b) => ({ value: b.id, label: b.name })),
           ]}
         />
@@ -100,7 +119,7 @@ export function HistoryScreen() {
     return (
       <>
         {picker}
-        <div className="p-6 text-center text-text-muted">Loading…</div>
+        <div className="p-6 text-center text-text-muted">{tt('common.loading')}</div>
       </>
     )
   }
@@ -108,7 +127,7 @@ export function HistoryScreen() {
     return (
       <>
         {picker}
-        <div className="p-6 text-center text-text-muted">{EMPTY[category]}</div>
+        <div className="p-6 text-center text-text-muted">{tt(EMPTY[category])}</div>
       </>
     )
   }
@@ -145,7 +164,7 @@ export function HistoryScreen() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-text">
-                        {who ? `${who} · ${title}` : title}
+                        {who ? tt('history.who', { name: who, title }) : title}
                       </span>
                       <span className="block truncate text-sm text-text-muted">
                         {detail}

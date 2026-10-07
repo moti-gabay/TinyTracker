@@ -4,12 +4,14 @@ import { saveDiaper } from '@/lib/db/repo'
 import { useSession } from '@/lib/session'
 import { tap } from '@/lib/haptics'
 import { Icon, type IconName } from '@/components/ui/Icon'
+import { useT } from '@/lib/i18n'
+import type { Key } from '@/lib/i18n/en'
 import type { DiaperType } from '@/lib/db/types'
 
-const OPTIONS: { value: DiaperType; label: string; icons: IconName[] }[] = [
-  { value: 'wet', label: 'Wet', icons: ['drop'] },
-  { value: 'dirty', label: 'Dirty', icons: ['poop'] },
-  { value: 'both', label: 'Both', icons: ['drop', 'poop'] },
+const OPTIONS: { value: DiaperType; label: Key; icons: IconName[] }[] = [
+  { value: 'wet', label: 'diaper.wet', icons: ['drop'] },
+  { value: 'dirty', label: 'diaper.dirty', icons: ['poop'] },
+  { value: 'both', label: 'diaper.both', icons: ['drop', 'poop'] },
 ]
 
 /** Three targets, one tap each, no confirmation. The fastest log in the app. */
@@ -17,6 +19,7 @@ export function DiaperScreen() {
   const { familyId, babyId, userId } = useSession()
   const showToast = useToast((s) => s.show)
   const navigate = useNavigate()
+  const t = useT()
 
   const log = async (type: DiaperType) => {
     tap()
@@ -27,10 +30,14 @@ export function DiaperScreen() {
         createdBy: userId,
         diaperType: type,
       })
-      showToast(`${type === 'both' ? 'Wet + dirty' : type === 'wet' ? 'Wet' : 'Dirty'} diaper logged`)
+      showToast(
+        t('diaper.logged', {
+          type: t(type === 'both' ? 'diaper.wetDirty' : type === 'wet' ? 'diaper.wet' : 'diaper.dirty'),
+        }),
+      )
       navigate('/')
     } catch {
-      showToast('Could not save. Try again.')
+      showToast(t('common.couldNotSave'))
     }
   }
 
@@ -47,7 +54,7 @@ export function DiaperScreen() {
               <Icon key={n} name={n} size={32} />
             ))}
           </span>
-          <span className="text-2xl font-bold">{o.label}</span>
+          <span className="text-2xl font-bold">{t(o.label)}</span>
         </button>
       ))}
     </div>

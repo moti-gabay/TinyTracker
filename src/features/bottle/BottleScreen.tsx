@@ -8,12 +8,14 @@ import { saveBottle } from '@/lib/db/repo'
 import { useSession } from '@/lib/session'
 import { tap } from '@/lib/haptics'
 import { cn } from '@/components/ui/cn'
+import { useT } from '@/lib/i18n'
+import type { Key } from '@/lib/i18n/en'
 import type { BottleContent } from '@/lib/db/types'
 
-const CONTENTS: { value: BottleContent; label: string }[] = [
-  { value: 'breast_milk', label: 'Breast milk' },
-  { value: 'formula', label: 'Formula' },
-  { value: 'mixed', label: 'Mixed' },
+const CONTENTS: { value: BottleContent; label: Key }[] = [
+  { value: 'breast_milk', label: 'bottle.breastMilk' },
+  { value: 'formula', label: 'bottle.formula' },
+  { value: 'mixed', label: 'bottle.mixed' },
 ]
 
 export function BottleScreen() {
@@ -24,6 +26,7 @@ export function BottleScreen() {
   const { familyId, babyId, userId } = useSession()
   const showToast = useToast((s) => s.show)
   const navigate = useNavigate()
+  const t = useT()
 
   const onSave = async () => {
     setSaving(true)
@@ -36,10 +39,10 @@ export function BottleScreen() {
         bottleContent: content,
       })
       tap()
-      showToast(`Bottle ${formatVolume(amountMl, unit)} saved`)
+      showToast(t('bottle.saved', { v: formatVolume(amountMl, unit) }))
       navigate('/')
     } catch {
-      showToast('Could not save. Try again.')
+      showToast(t('common.couldNotSave'))
     } finally {
       setSaving(false)
     }
@@ -53,7 +56,7 @@ export function BottleScreen() {
           onChange={setAmountMl}
           step={stepMl(unit)}
           max={1000}
-          label="Amount"
+          label={t('bottle.amount')}
           format={(v) => formatVolume(v, unit)}
         />
 
@@ -69,14 +72,14 @@ export function BottleScreen() {
                   : 'border-border bg-surface-2 text-text-muted',
               )}
             >
-              {c.label}
+              {t(c.label)}
             </button>
           ))}
         </div>
       </div>
 
       <Button variant="primary" className="h-16 text-lg" disabled={saving} onClick={onSave}>
-        {saving ? 'Saving…' : 'Log bottle'}
+        {t(saving ? 'common.saving' : 'bottle.log')}
       </Button>
     </div>
   )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
+import { t, useT } from '@/lib/i18n'
 
 /** Supabase's per-email resend cooldown, so the button says why it is disabled. */
 const RESEND_SECONDS = 60
@@ -13,12 +14,10 @@ const RESEND_SECONDS = 60
  * -- are indistinguishable from "wrong code" unless we say so.
  */
 function explain(code: string | undefined, message: string): string {
-  if (code === 'otp_expired' || /expired/i.test(message))
-    return 'That code expired. Request a new one.'
-  if (/rate limit/i.test(message))
-    return 'Too many codes sent from this project. Wait an hour, or set up SMTP in Supabase.'
+  if (code === 'otp_expired' || /expired/i.test(message)) return t('auth.expired')
+  if (/rate limit/i.test(message)) return t('auth.rateLimit')
   if (code === 'otp_disabled' || /signups not allowed/i.test(message))
-    return 'Sign-ups are turned off for this project.'
+    return t('auth.signupsOff')
   return message
 }
 
@@ -34,6 +33,7 @@ export function AuthScreen() {
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
+  const t = useT()
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -84,10 +84,8 @@ export function AuthScreen() {
   return (
     <div className="flex h-full flex-col justify-center gap-4 p-6">
       <div>
-        <h1 className="text-2xl font-bold text-text">Sync with your partner</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          We email you a code. No password to remember.
-        </p>
+        <h1 className="text-2xl font-bold text-text">{t('auth.title')}</h1>
+        <p className="mt-1 text-sm text-text-muted">{t('auth.subtitle')}</p>
       </div>
 
       <input
@@ -97,7 +95,7 @@ export function AuthScreen() {
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        placeholder="you@example.com"
+        placeholder={t('auth.emailPlaceholder')}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         disabled={sent}
@@ -111,14 +109,12 @@ export function AuthScreen() {
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
-            placeholder="6-digit code"
+            placeholder={t('auth.codePlaceholder')}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             className="min-h-14 rounded-2xl border border-border bg-surface-2 px-4 text-center text-2xl tracking-[0.3em] tabular-nums text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-muted"
           />
-          <p className="text-xs text-text-muted">
-            Got a link instead of a code? Tap it — it signs you in too.
-          </p>
+          <p className="text-xs text-text-muted">{t('auth.linkHint')}</p>
         </>
       )}
 
@@ -138,12 +134,12 @@ export function AuthScreen() {
         onClick={sent ? verify : sendCode}
       >
         {busy
-          ? 'Working…'
+          ? t('auth.working')
           : sent
-            ? 'Verify code'
+            ? t('auth.verify')
             : cooldown > 0
-              ? `Wait ${cooldown}s`
-              : 'Email me a code'}
+              ? t('auth.wait', { n: cooldown })
+              : t('auth.emailMe')}
       </Button>
 
       {sent && (
@@ -154,7 +150,7 @@ export function AuthScreen() {
             disabled={busy || cooldown > 0}
             onClick={sendCode}
           >
-            {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend the code'}
+            {cooldown > 0 ? t('auth.resendIn', { n: cooldown }) : t('auth.resend')}
           </Button>
           <Button
             variant="ghost"
@@ -166,7 +162,7 @@ export function AuthScreen() {
               setDetail(null)
             }}
           >
-            Use a different email
+            {t('auth.differentEmail')}
           </Button>
         </>
       )}

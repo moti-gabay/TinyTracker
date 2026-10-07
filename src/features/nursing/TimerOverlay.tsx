@@ -12,6 +12,7 @@ import { useSession } from '@/lib/session'
 import { useBabies } from '@/lib/db/babies'
 import { saveNursing } from '@/lib/db/repo'
 import { cn } from '@/components/ui/cn'
+import { useT } from '@/lib/i18n'
 
 /**
  * Full-screen takeover while a feed runs.
@@ -25,6 +26,7 @@ export function TimerOverlay() {
   const { familyId, babyId, userId } = useSession()
   const babies = useBabies(familyId)
   const showToast = useToast((s) => s.show)
+  const t = useT()
 
   const live = isRunning(state.status)
   const visible = state.status !== 'idle'
@@ -52,13 +54,13 @@ export function TimerOverlay() {
       })
       store.saved()
       tap([10, 40, 10])
-      showToast(`Saved ${formatDuration(elapsedMs(state, finishedAt))}`)
+      showToast(t('timer.saved', { d: formatDuration(elapsedMs(state, finishedAt)) }))
     } catch {
       // The feed is NOT lost: the machine returns to the confirmation sheet.
       store.failed()
-      showToast('Could not save. Tap Save to retry.')
+      showToast(t('timer.saveFailed'))
     }
-  }, [state, store, familyId, babyId, userId, showToast])
+  }, [state, store, familyId, babyId, userId, showToast, t])
 
   if (!visible) return null
 
@@ -84,7 +86,7 @@ export function TimerOverlay() {
             'night:text-text',
           )}
         >
-          {onLeft ? 'LEFT' : 'RIGHT'}
+          {t(onLeft ? 'side.left' : 'side.right')}
         </div>
 
         {feedingFor && (
@@ -100,8 +102,11 @@ export function TimerOverlay() {
         </div>
 
         <div className="mt-3 text-sm text-text-muted">
-          {paused ? 'Paused' : 'Feeding'} · L {formatDuration(totals.left * 1000)} · R{' '}
-          {formatDuration(totals.right * 1000)}
+          {t(paused ? 'timer.paused' : 'timer.feeding')} ·{' '}
+          {t('timer.sides', {
+            l: formatDuration(totals.left * 1000),
+            r: formatDuration(totals.right * 1000),
+          })}
         </div>
       </div>
 
@@ -118,7 +123,7 @@ export function TimerOverlay() {
             store.switchSide(onLeft ? 'right' : 'left')
           }}
         >
-          Switch to {onLeft ? 'Right' : 'Left'}
+          {t('timer.switchTo', { side: t(onLeft ? 'common.right' : 'common.left') })}
         </Button>
 
         <div className="flex gap-3">
@@ -131,7 +136,7 @@ export function TimerOverlay() {
               else store.pause()
             }}
           >
-            {paused ? 'Resume' : 'Pause'}
+            {t(paused ? 'timer.resume' : 'timer.pause')}
           </Button>
           <Button
             variant="secondary"
@@ -141,7 +146,7 @@ export function TimerOverlay() {
               store.stop()
             }}
           >
-            Stop
+            {t('timer.stop')}
           </Button>
         </div>
       </div>
@@ -149,7 +154,7 @@ export function TimerOverlay() {
       <Sheet
         open={confirming}
         onClose={() => store.cancel()}
-        title={`Save this ${formatDuration(elapsed)} feed?`}
+        title={t('timer.saveQuestion', { d: formatDuration(elapsed) })}
       >
         <div className="flex flex-col gap-3">
           <Button
@@ -158,20 +163,20 @@ export function TimerOverlay() {
             disabled={state.status === 'saving'}
             onClick={onSave}
           >
-            {state.status === 'saving' ? 'Saving…' : 'Save feed'}
+            {t(state.status === 'saving' ? 'common.saving' : 'timer.saveFeed')}
           </Button>
           <Button variant="secondary" className="h-12" onClick={() => store.cancel()}>
-            Keep feeding
+            {t('timer.keepFeeding')}
           </Button>
           <Button
             variant="danger"
             className="h-12"
             onClick={() => {
               store.discard()
-              showToast('Feed discarded')
+              showToast(t('timer.discarded'))
             }}
           >
-            Discard
+            {t('timer.discard')}
           </Button>
         </div>
       </Sheet>

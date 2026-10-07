@@ -7,6 +7,7 @@ import { formatVolume, getUnit, stepMl } from '@/lib/units/volume'
 import { savePump } from '@/lib/db/repo'
 import { useSession } from '@/lib/session'
 import { tap } from '@/lib/haptics'
+import { useT } from '@/lib/i18n'
 
 export function PumpScreen() {
   const unit = getUnit()
@@ -16,6 +17,7 @@ export function PumpScreen() {
   const { familyId, babyId, userId } = useSession()
   const showToast = useToast((s) => s.show)
   const navigate = useNavigate()
+  const t = useT()
 
   const onSave = async () => {
     setSaving(true)
@@ -29,10 +31,10 @@ export function PumpScreen() {
         rightMl,
       })
       tap()
-      showToast(`Pumped ${formatVolume(leftMl + rightMl, unit)}`)
+      showToast(t('pump.pumped', { v: formatVolume(leftMl + rightMl, unit) }))
       navigate('/')
     } catch {
-      showToast('Could not save. Try again.')
+      showToast(t('common.couldNotSave'))
     } finally {
       setSaving(false)
     }
@@ -46,7 +48,7 @@ export function PumpScreen() {
           onChange={setLeftMl}
           step={stepMl(unit)}
           max={1000}
-          label="Left"
+          label={t('common.left')}
           format={(v) => formatVolume(v, unit)}
         />
         <NumberStepper
@@ -54,11 +56,11 @@ export function PumpScreen() {
           onChange={setRightMl}
           step={stepMl(unit)}
           max={1000}
-          label="Right"
+          label={t('common.right')}
           format={(v) => formatVolume(v, unit)}
         />
         <div className="text-center text-sm text-text-muted">
-          Total {formatVolume(leftMl + rightMl, unit)}
+          {t('pump.total', { v: formatVolume(leftMl + rightMl, unit) })}
         </div>
       </div>
 
@@ -68,7 +70,7 @@ export function PumpScreen() {
         disabled={saving || leftMl + rightMl === 0}
         onClick={onSave}
       >
-        {saving ? 'Saving…' : 'Log pumping'}
+        {t(saving ? 'common.saving' : 'pump.log')}
       </Button>
     </div>
   )

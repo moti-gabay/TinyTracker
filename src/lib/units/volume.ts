@@ -3,6 +3,7 @@
  * so a family with two phones set to different units still shares one dataset.
  */
 import { StorageKeys, readLocal, writeLocal } from '@/lib/storage'
+import { t } from '@/lib/i18n'
 
 export type VolumeUnit = 'ml' | 'oz'
 
@@ -27,8 +28,8 @@ export function ozToMl(oz: number): number {
 /** `120 ml` / `4.1 oz`. */
 export function formatVolume(ml: number, unit: VolumeUnit = getUnit()): string {
   return unit === 'oz'
-    ? `${mlToOz(ml).toFixed(1)} oz`
-    : `${Math.round(ml)} ml`
+    ? t('unit.oz', { n: mlToOz(ml).toFixed(1) })
+    : t('unit.ml', { n: Math.round(ml) })
 }
 
 /** Step size for the +/- stepper, in ml, chosen per display unit. */

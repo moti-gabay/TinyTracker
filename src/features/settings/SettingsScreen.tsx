@@ -15,6 +15,7 @@ import { useAppUpdate } from '@/lib/pwa/appUpdate'
 import { clearSessionIds, useSession } from '@/lib/session'
 import { useBabies } from '@/lib/db/babies'
 import { addBaby, renameBaby } from '@/lib/sync/babies'
+import { setLang, useLang, useT, type Lang } from '@/lib/i18n'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -35,21 +36,26 @@ function Children({ familyId }: { familyId: string }) {
   const babies = useBabies(familyId)
   const showToast = useToast((s) => s.show)
   const [busy, setBusy] = useState(false)
+  const t = useT()
 
   const add = async () => {
-    if (!navigator.onLine) return showToast('Connect to add a child.')
+    if (!navigator.onLine) return showToast(t('settings.connectToAdd'))
     setBusy(true)
-    const ok = await addBaby(familyId, `Baby ${babies.length + 1}`, null)
+    const ok = await addBaby(
+      familyId,
+      t('settings.defaultBaby', { n: babies.length + 1 }),
+      null,
+    )
     setBusy(false)
-    showToast(ok ? 'Child added' : 'Could not add a child')
+    showToast(t(ok ? 'settings.childAdded' : 'settings.addFailed'))
   }
 
   const rename = async (id: string, name: string, previous: string) => {
     const next = name.trim()
     if (!next || next === previous) return
-    if (!navigator.onLine) return showToast('Connect to rename.')
+    if (!navigator.onLine) return showToast(t('settings.connectToRename'))
     if (!(await renameBaby(familyId, id, { name: next })))
-      showToast('Could not save that name')
+      showToast(t('settings.renameFailed'))
   }
 
   return (
@@ -59,14 +65,14 @@ function Children({ familyId }: { familyId: string }) {
           <input
             type="text"
             defaultValue={b.name}
-            aria-label="Child name"
+            aria-label={t('settings.childName')}
             onBlur={(e) => void rename(b.id, e.target.value, b.name)}
             className="min-h-12 min-w-0 flex-1 rounded-2xl border border-border bg-surface-2 px-4 text-base text-text"
           />
           <input
             type="date"
             defaultValue={b.bornAt ?? ''}
-            aria-label="Born on"
+            aria-label={t('settings.bornOn')}
             onBlur={(e) =>
               void renameBaby(familyId, b.id, { bornAt: e.target.value || null })
             }
@@ -75,12 +81,9 @@ function Children({ familyId }: { familyId: string }) {
         </div>
       ))}
       <Button variant="secondary" className="h-12 w-full" disabled={busy} onClick={add}>
-        Add a child
+        {t('settings.addChild')}
       </Button>
-      <p className="text-xs text-text-muted">
-        Twins get their own logs, and a name chip appears in the header to switch
-        between them.
-      </p>
+      <p className="text-xs text-text-muted">{t('settings.twinsHint')}</p>
     </div>
   )
 }
@@ -96,6 +99,8 @@ export function SettingsScreen() {
   const applyUpdate = useAppUpdate((s) => s.applyUpdate)
   const showToast = useToast((s) => s.show)
   const [online, setOnline] = useState(navigator.onLine)
+  const lang = useLang()
+  const t = useT()
 
   const pending = useLiveQuery(() => db.outbox.where('dead').equals(0).count(), [])
   const failed = useLiveQuery(() => db.outbox.where('dead').equals(1).count(), [])
@@ -114,13 +119,13 @@ export function SettingsScreen() {
   const signOut = async () => {
     if (!supabase) return
     if (pending && pending > 0) {
-      showToast(`${pending} log(s) not yet synced. Reconnect first.`)
+      showToast(t('settings.unsynced', { n: pending }))
       return
     }
     await supabase.auth.signOut()
     await clearLocalData()
     clearSessionIds()
-    showToast('Signed out')
+    showToast(t('settings.signedOut'))
     window.location.href = '/'
   }
 
@@ -128,29 +133,40 @@ export function SettingsScreen() {
     <div>
       {needsRefresh && applyUpdate && (
         <div className="flex items-center gap-3 border-b border-border bg-surface-2 px-4 py-3">
-          <span className="flex-1 text-sm text-text">An update is ready.</span>
+          <span className="flex-1 text-sm text-text">{t('settings.updateReady')}</span>
           <Button variant="primary" onClick={() => void applyUpdate()}>
-            Reload
+            {t('settings.reload')}
           </Button>
         </div>
       )}
 
-      <Row label="Theme">
+      {/* First, and each option in its own language, so the row is findable
+          from either UI. */}
+      <Row label={t('settings.language')}>
+        <Segmented<Lang>
+          value={lang}
+          onChange={setLang}
+          options={[
+            { value: 'en', label: 'English' },
+            { value: 'he', label: 'עברית' },
+          ]}
+        />
+      </Row>
+
+      <Row label={t('settings.theme')}>
         <Segmented<ThemePreference>
           value={preference}
           onChange={setPreference}
           options={[
-            { value: 'system', label: 'System' },
-            { value: 'day', label: 'Day' },
-            { value: 'night', label: 'Night' },
+            { value: 'system', label: t('settings.system') },
+            { value: 'day', label: t('settings.day') },
+            { value: 'night', label: t('settings.night') },
           ]}
         />
-        <p className="mt-2 text-xs text-text-muted">
-          Night mode uses warm, dimmed colours tuned for feeding in a dark room.
-        </p>
+        <p className="mt-2 text-xs text-text-muted">{t('settings.themeHint')}</p>
       </Row>
 
-      <Row label="Volume units">
+      <Row label={t('settings.units')}>
         <Segmented<VolumeUnit>
           value={unit}
           onChange={(u) => {
@@ -158,69 +174,58 @@ export function SettingsScreen() {
             setUnitState(u)
           }}
           options={[
-            { value: 'ml', label: 'Millilitres' },
-            { value: 'oz', label: 'Ounces' },
+            { value: 'ml', label: t('settings.ml') },
+            { value: 'oz', label: t('settings.oz') },
           ]}
         />
-        <p className="mt-2 text-xs text-text-muted">
-          Display only. Amounts are always stored in millilitres.
-        </p>
+        <p className="mt-2 text-xs text-text-muted">{t('settings.unitsHint')}</p>
       </Row>
 
-      <Row label="Sync">
+      <Row label={t('settings.sync')}>
         {!isSyncConfigured ? (
-          <p className="text-xs text-text-muted">
-            Sharing is not configured for this install. Every log is still saved
-            on this device.
-          </p>
+          <p className="text-xs text-text-muted">{t('settings.syncOff')}</p>
         ) : loading ? (
-          <p className="text-xs text-text-muted">Checking…</p>
+          <p className="text-xs text-text-muted">{t('settings.checking')}</p>
         ) : !session ? (
           <AuthScreen />
         ) : (
           <>
             <p className="mb-3 text-xs text-text-muted">
-              {session.user.email} · {online ? 'Online' : 'Offline'} ·{' '}
-              {pending === 0 ? 'All logs synced' : `${pending ?? 0} waiting to sync`}
+              {session.user.email} · {t(online ? 'settings.online' : 'settings.offline')} ·{' '}
+              {pending === 0
+                ? t('settings.allSynced')
+                : t('settings.waiting', { n: pending ?? 0 })}
             </p>
             {failed !== undefined && failed > 0 && (
               <p className="mb-3 text-xs text-danger">
-                {failed} log(s) were rejected by the server and are kept on this
-                device.
+                {t('settings.rejected', { n: failed })}
               </p>
             )}
             <FamilyScreen />
             <Button variant="danger" className="mt-4 h-12 w-full" onClick={signOut}>
-              Sign out
+              {t('settings.signOut')}
             </Button>
           </>
         )}
       </Row>
 
       {isSyncConfigured && session && (
-        <Row label="Children">
+        <Row label={t('settings.children')}>
           <Children familyId={familyId} />
         </Row>
       )}
 
-      <Row label="Install">
+      <Row label={t('settings.install')}>
         {installed ? (
-          <p className="text-xs text-text-muted">
-            Installed. TinyTracker opens and logs feeds with no network.
-          </p>
+          <p className="text-xs text-text-muted">{t('settings.installed')}</p>
         ) : canInstall ? (
           <Button variant="primary" className="h-12 w-full" onClick={promptInstall}>
-            Add to home screen
+            {t('settings.addToHome')}
           </Button>
         ) : needsIosInstructions ? (
-          <p className="text-xs text-text-muted">
-            Tap Share, then “Add to Home Screen”. Installing also lets the screen
-            stay awake during a feed.
-          </p>
+          <p className="text-xs text-text-muted">{t('settings.iosHint')}</p>
         ) : (
-          <p className="text-xs text-text-muted">
-            Use your browser menu to add TinyTracker to your home screen.
-          </p>
+          <p className="text-xs text-text-muted">{t('settings.browserHint')}</p>
         )}
       </Row>
     </div>

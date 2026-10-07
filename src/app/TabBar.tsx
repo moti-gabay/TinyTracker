@@ -1,21 +1,24 @@
 import { NavLink } from 'react-router'
 import { cn } from '@/components/ui/cn'
 import { Icon, type IconName } from '@/components/ui/Icon'
+import { useT } from '@/lib/i18n'
+import type { Key } from '@/lib/i18n/en'
 
-const TABS: { to: string; label: string; icon: IconName }[] = [
-  { to: '/', label: 'Nurse', icon: 'timer' },
-  { to: '/bottle', label: 'Bottle', icon: 'bottle' },
-  { to: '/pump', label: 'Pump', icon: 'pump' },
-  { to: '/diaper', label: 'Diaper', icon: 'diaper' },
-  { to: '/history', label: 'History', icon: 'list' },
+const TABS: { to: string; label: Key; icon: IconName }[] = [
+  { to: '/', label: 'tabs.nurse', icon: 'timer' },
+  { to: '/bottle', label: 'tabs.bottle', icon: 'bottle' },
+  { to: '/pump', label: 'tabs.pump', icon: 'pump' },
+  { to: '/diaper', label: 'tabs.diaper', icon: 'diaper' },
+  { to: '/history', label: 'tabs.history', icon: 'list' },
 ]
 
 export function TabBar() {
+  const t = useT()
   return (
     <nav
       className="flex shrink-0 border-t border-border bg-surface"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      aria-label="Main"
+      aria-label={t('tabs.main')}
     >
       {TABS.map((tab) => (
         <NavLink
@@ -30,7 +33,7 @@ export function TabBar() {
           }
         >
           <Icon name={tab.icon} size={22} />
-          <span className="text-[0.7rem] font-medium">{tab.label}</span>
+          <span className="text-[0.7rem] font-medium">{t(tab.label)}</span>
         </NavLink>
       ))}
     </nav>

@@ -6,6 +6,7 @@ import { useBabies } from '@/lib/db/babies'
 import { useSession } from '@/lib/session'
 import { tap } from '@/lib/haptics'
 import { useTimerStore } from '@/features/nursing/timerStore'
+import { useT } from '@/lib/i18n'
 
 /**
  * Which child new logs are attributed to.
@@ -27,6 +28,7 @@ export function BabyChip() {
   const showToast = useToast((s) => s.show)
   const status = useTimerStore((s) => s.state.status)
   const [picking, setPicking] = useState(false)
+  const t = useT()
 
   if (babies.length < 2) return null
 
@@ -39,7 +41,7 @@ export function BabyChip() {
     tap()
     selectBaby(id)
     setPicking(false)
-    showToast(`Now logging for ${next.name}`)
+    showToast(t('chip.nowLogging', { name: next.name }))
   }
 
   const onPress = () => {
@@ -55,13 +57,13 @@ export function BabyChip() {
       <button
         onClick={onPress}
         disabled={locked}
-        aria-label={`Logging for ${current.name}. Switch child.`}
+        aria-label={t('chip.aria', { name: current.name })}
         className="flex h-12 max-w-28 shrink-0 items-center rounded-full border border-border px-4 text-sm font-semibold text-text active:opacity-70 disabled:opacity-40"
       >
         <span className="truncate">{current.name}</span>
       </button>
 
-      <Sheet open={picking} onClose={() => setPicking(false)} title="Log for">
+      <Sheet open={picking} onClose={() => setPicking(false)} title={t('chip.title')}>
         <div className="flex flex-col gap-3">
           {babies.map((b) => (
             <Button
