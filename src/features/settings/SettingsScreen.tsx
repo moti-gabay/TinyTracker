@@ -16,6 +16,8 @@ import { clearSessionIds, useSession } from '@/lib/session'
 import { useBabies } from '@/lib/db/babies'
 import { addBaby, renameBaby } from '@/lib/sync/babies'
 import { setLang, useLang, useT, type Lang } from '@/lib/i18n'
+import { FeedbackSheet } from '@/features/feedback/FeedbackSheet'
+import { CreditFooter } from './CreditFooter'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -101,6 +103,7 @@ export function SettingsScreen() {
   const [online, setOnline] = useState(navigator.onLine)
   const lang = useLang()
   const t = useT()
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   const pending = useLiveQuery(() => db.outbox.where('dead').equals(0).count(), [])
   const failed = useLiveQuery(() => db.outbox.where('dead').equals(1).count(), [])
@@ -228,6 +231,25 @@ export function SettingsScreen() {
           <p className="text-xs text-text-muted">{t('settings.browserHint')}</p>
         )}
       </Row>
+
+      {isSyncConfigured && (
+        <Row label={t('feedback.title')}>
+          <Button
+            variant="secondary"
+            className="h-12 w-full"
+            onClick={() => setFeedbackOpen(true)}
+          >
+            {t('feedback.open')}
+          </Button>
+          <FeedbackSheet
+            open={feedbackOpen}
+            onClose={() => setFeedbackOpen(false)}
+            defaultEmail={session?.user.email ?? ''}
+          />
+        </Row>
+      )}
+
+      <CreditFooter />
     </div>
   )
 }

@@ -143,6 +143,26 @@ test('switching to Hebrew flips direction and persists across reload', async ({ 
   expect(l!.x).toBeLessThan(r!.x)
 })
 
+test('settings credits the developer and offers a feedback form', async ({ page }) => {
+  await page.goto('/settings')
+
+  const credit = page.getByRole('link', { name: /Developed by/ })
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', /noopener/)
+  await expect(page.getByText(/All rights reserved/)).toBeVisible()
+
+  // The form needs Supabase; with no credentials the row is simply absent.
+  const open = page.getByRole('button', { name: /Send feedback/ })
+  if ((await open.count()) === 0) return
+  await open.click()
+  const send = page.getByRole('button', { name: 'Send', exact: true })
+  await expect(send).toBeDisabled()
+  await page.getByRole('dialog').getByRole('textbox').first().fill('More night-mode contrast, please')
+  await expect(send).toBeEnabled()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+})
+
 test('logs bottle, pump and diaper entries', async ({ page }) => {
   await page.goto('/')
 

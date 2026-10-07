@@ -20,6 +20,9 @@ end $$;
 grant usage on schema public, auth to app_user;
 grant authenticated to app_user;
 grant execute on function auth.uid() to app_user;
+-- Supabase gives `anon` these two by default; a bare container does not.
+grant usage on schema public, auth to anon;
+grant execute on function auth.uid() to anon;
 
 \echo '--- Parent A creates a family ---'
 set role app_user;
@@ -196,6 +199,56 @@ do $$ begin
   end if;
   if (select count(*) from public.babies) <> 0 then
     raise exception 'babies survived their family';
+  end if;
+end $$;
+
+\echo '--- Anyone can send feedback; nobody can read it through the API ---'
+-- Clear the claim: a real anon JWT has no sub, and the setting outlives role switches.
+set request.jwt.claim.sub = '';
+set role anon;
+select public.submit_feedback('anonymous note', '  ', 'he');
+do $$ begin
+  begin
+    perform public.submit_feedback('   ');
+    raise exception 'blank feedback was accepted';
+  exception when others then
+    if sqlerrm <> 'empty message' then raise; end if;
+  end;
+  begin
+    perform public.submit_feedback(repeat('x', 2001));
+    raise exception 'a 2001-char message was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    perform count(*) from public.feedback;
+    raise exception 'anon can read feedback';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+set role app_user;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+select public.submit_feedback('signed-in note', 'parent.a@example.com', 'en');
+do $$ begin
+  begin
+    perform count(*) from public.feedback;
+    raise exception 'a signed-in user can read feedback';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$ begin
+  if (select count(*) from public.feedback) <> 2 then
+    raise exception 'expected 2 feedback rows';
+  end if;
+  if (select user_id from public.feedback where message = 'anonymous note') is not null then
+    raise exception 'anonymous feedback carries a user id';
+  end if;
+  if (select email from public.feedback where message = 'anonymous note') is not null then
+    raise exception 'a blank email was stored instead of null';
+  end if;
+  if (select user_id from public.feedback where message = 'signed-in note')
+     <> '11111111-1111-1111-1111-111111111111' then
+    raise exception 'signed-in feedback lost its user id';
   end if;
 end $$;
 

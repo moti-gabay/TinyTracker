@@ -33,7 +33,7 @@ pnpm lint
 ## Enabling partner sync
 
 1. Create a Supabase project.
-2. Run `supabase/migrations/0001_init.sql` in the SQL editor.
+2. Run `supabase/migrations/*.sql` in the SQL editor, in order.
 3. Copy `.env.example` to `.env` and fill in the project URL and anon key.
 4. In the app, open Settings, sign in by email code, then create a family.
    Your partner enters the resulting 8-character code on their phone.
@@ -46,7 +46,7 @@ Every check raises on failure, so the script's exit code is the result.
 
 ```bash
 docker run -d --name tt-pg -e POSTGRES_PASSWORD=pw postgres:16
-for f in test_setup migrations/0001_init migrations/0002_family_membership rls_test; do
+for f in test_setup migrations/0001_init migrations/0002_family_membership migrations/0003_feedback rls_test; do
   docker cp "supabase/$f.sql" tt-pg:/tmp/ &&   docker exec tt-pg psql -U postgres -v ON_ERROR_STOP=1 -f "/tmp/$(basename $f).sql"
 done
 ```
